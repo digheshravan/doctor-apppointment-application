@@ -1,6 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-             android:layout_width="match_parent"
-             android:layout_height="match_parent">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="10dp"
+    android:gravity="center"
+    android:background="@color/white"
+    tools:context=".MainActivity">
+    <!--SignUp Page-->
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+    <EditText
+        android:id="@+id/name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter Name"
+        android:textSize="15dp"
+        android:textColorHint="@color/black"
+        android:inputType="text"
+        android:layout_marginBottom="40dp"
+        />
+
+    <EditText
+        android:id="@+id/phoneno"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter Phone Number"
+        android:textSize="15dp"
+        android:textColorHint="@color/black"
+        android:inputType="number"
+        android:layout_marginBottom="40dp"
+        />
+    <EditText
+        android:id="@+id/email"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter Email"
+        android:textSize="15dp"
+        android:textColorHint="@color/black"
+        android:inputType="textEmailAddress"
+        android:layout_marginBottom="40dp"
+        />
+    <EditText
+        android:id="@+id/password"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter the password"
+        android:textSize="15dp"
+        android:textColorHint="@color/black"
+        android:inputType="textPassword"
+        android:layout_marginBottom="40dp"
+        />
+    <RadioGroup
+        android:id="@+id/rgGender"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="40dp">
+        <TextView
+            android:id="@+id/gender"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Select Gender:"
+            android:textSize="15dp"
+            android:textColor="@color/black"
+            />
+        <RadioButton
+            android:id="@+id/rbmale"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Male"
+            android:textSize="15dp"
+            android:textColor="@color/black"
+            />
+        <RadioButton
+            android:id="@+id/rbfemale"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Female"
+            android:textSize="15dp"
+            android:textColor="@color/black"
+            />
+    </RadioGroup>
+    <Button
+        android:id="@+id/signup"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Sign Up"
+        android:textSize="15dp"
+        android:backgroundTint="#2196F3"
+        android:textColor="@color/black"
+        android:layout_marginBottom="40dp"
+        />
+    <TextView
+        android:id="@+id/signin"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Already have an account? Sign In"
+        android:textAlignment="center"
+        android:textColor="@color/black"
+        android:textSize="15dp"
+        />
+
+</LinearLayout>
