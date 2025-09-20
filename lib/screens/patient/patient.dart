@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/patient/book_appointment.dart';
+import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:medi_slot/screens/patient/view_appointments.dart';
 import 'package:medi_slot/screens/patient/manage_appointments.dart';
 import 'package:medi_slot/screens/patient/patient_profiles.dart';
@@ -98,7 +99,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
         padding: const EdgeInsets.all(20.0),
         child: isLoading
             ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(   // ✅ Added scrollable wrapper
+            : SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -112,6 +113,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 30),
+
+              /// ✅ Profiles Card
               DashboardCard(
                 icon: Icons.person,
                 color: Colors.blue,
@@ -126,6 +129,23 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 },
               ),
               const SizedBox(height: 20),
+
+              /// ✅ Search Doctor Card
+              DashboardCard(
+                icon: Icons.search,
+                color: Colors.teal,
+                title: "Search Doctor",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DoctorMapPage(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+
               DashboardCard(
                 icon: Icons.add_circle,
                 color: Colors.green,
@@ -205,7 +225,7 @@ class DashboardCard extends StatelessWidget {
               CircleAvatar(
                 radius: 30,
                 backgroundColor: color.withValues(alpha: 0.2),
-              child: Icon(icon, size: 30, color: color),
+                child: Icon(icon, size: 30, color: color),
               ),
               const SizedBox(width: 20),
               Text(
