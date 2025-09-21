@@ -37,6 +37,8 @@ dependencies:
   supabase_flutter: ^2.10.0
   intl: ^0.19.0
   google_maps_flutter: ^2.6.0
+  geolocator: ^11.0.0
+  geocoding: ^3.0.0
 
 dev_dependencies:
   flutter_test:
@@ -61,6 +63,7 @@ flutter_icons:
 flutter:
   assets:
     - assets/icon/MediSlot.png
+    - assets/icon/doctor_marker.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

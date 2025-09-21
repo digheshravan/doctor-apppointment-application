@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:medi_slot/screens/patient/patient.dart';
+import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class BookAppointmentPage extends StatefulWidget {
@@ -11,17 +12,17 @@ class BookAppointmentPage extends StatefulWidget {
 }
 
 class _BookAppointmentPageState extends State<BookAppointmentPage> {
+  Map<String, dynamic>? _selectedDoctor; // Store selected doctor data
   final supabase = Supabase.instance.client;
 
-  String? selectedDoctorId;
   String? selectedPatientId;
-
-  List<dynamic> doctors = [];
-  List<dynamic> patients = [];
-  List<dynamic> appointments = [];
-
+  Map<String, dynamic>? selectedDoctor; // For booking
+  Map<String, dynamic>? selectedDoctorInfo; // For displaying card info
   DateTime? selectedDate;
   String? selectedTimeSlot;
+
+  List<dynamic> patients = [];
+  List<dynamic> appointments = [];
 
   final TextEditingController reasonController = TextEditingController();
   bool isLoading = true;
@@ -39,7 +40,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   @override
   void initState() {
     super.initState();
-    fetchDoctors();
     fetchPatients();
   }
 
@@ -65,21 +65,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
-  Future<void> fetchDoctors() async {
-    try {
-      final data = await supabase
-          .from('doctors')
-          .select('doctor_id, specialization, profiles(name)')
-          .eq('status', 'approved');
-
-      setState(() {
-        doctors = data;
-      });
-    } catch (e) {
-      debugPrint("Error fetching doctors: $e");
-    }
-  }
-
   Future<void> fetchAppointments() async {
     if (selectedPatientId == null) return;
     try {
@@ -99,7 +84,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
-  /// Check if slot is available
   Future<bool> canBookSlot(String doctorId, DateTime date, String slot) async {
     final appointmentDate = DateFormat('yyyy-MM-dd').format(date);
 
@@ -115,7 +99,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
 
   Future<void> bookAppointment() async {
     if (selectedPatientId == null ||
-        selectedDoctorId == null ||
+        selectedDoctor == null ||
         selectedDate == null ||
         selectedTimeSlot == null ||
         reasonController.text.isEmpty) {
@@ -125,8 +109,8 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       return;
     }
 
-    final slotAvailable =
-    await canBookSlot(selectedDoctorId!, selectedDate!, selectedTimeSlot!);
+    final slotAvailable = await canBookSlot(
+        selectedDoctor!['doctor_id'], selectedDate!, selectedTimeSlot!);
 
     if (!slotAvailable) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -142,9 +126,9 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
 
       await supabase.from('appointments').insert({
         'patient_id': selectedPatientId,
-        'doctor_id': selectedDoctorId,
+        'doctor_id': selectedDoctor!['doctor_id'],
         'appointment_date': appointmentDate,
-        'appointment_time': selectedTimeSlot, // Updated
+        'appointment_time': selectedTimeSlot,
         'reason': reasonController.text,
         'status': 'pending',
       });
@@ -157,7 +141,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       fetchAppointments();
 
       // Navigate back to patient dashboard
-      Navigator.push(
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => const PatientDashboard(),
@@ -182,6 +166,24 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
+  Future<void> selectDoctorOnMap() async {
+    final selected = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const DoctorMapPage()),
+    );
+
+    if (selected != null) {
+      setState(() {
+        selectedDoctorInfo = selected;
+        selectedDoctor = {
+          'doctor_id': selected['doctorId'],
+          'name': selected['doctorName'],
+          'specialization': selected['specialization'],
+        };
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedPatient = patients.firstWhere(
@@ -198,7 +200,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)], // teal → sky blue
+              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -206,64 +208,97 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         ),
         title: const Text(
           "Book Appointment",
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black,),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+          ),
         ),
         centerTitle: true,
         elevation: 6,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "Patient Details",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: selectedPatientId,
-                items: patients.map<DropdownMenuItem<String>>((patient) {
-                  return DropdownMenuItem<String>(
-                    value: patient['patient_id'],
-                    child: Text(patient['name']),
+              // Doctor selection
+              GestureDetector(
+                onTap: () async {
+                  final selected = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DoctorMapPage()),
                   );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedPatientId = value;
-                  });
+
+                  if (selected != null) {
+                    setState(() {
+                      selectedDoctorInfo = selected;
+                      selectedDoctor = {
+                        'doctor_id': selected['doctorId'],
+                        'name': selected['doctorName'],
+                        'specialization': selected['specialization'],
+                      };
+                    });
+                  }
                 },
-                decoration: const InputDecoration(
-                  labelText: "Select Patient",
-                  border: OutlineInputBorder(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        selectedDoctor == null
+                            ? "Select Doctor – Tap to view map"
+                            : "Selected: ${selectedDoctor?['name'] ?? 'Unknown'}",
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const Icon(Icons.search, color: Colors.blue),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Text("Name: $patientName"),
-              Text("Age: $patientAge"),
-              Text("Gender: $patientGender"),
-              const SizedBox(height: 20),
-              DropdownButtonFormField<String>(
-                value: selectedDoctorId,
-                items: doctors.map<DropdownMenuItem<String>>((doctor) {
-                  return DropdownMenuItem<String>(
-                    value: doctor['doctor_id'],
-                    child: Text(
-                        "${doctor['profiles']['name']} (${doctor['specialization']})"),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedDoctorId = value;
-                  });
-                },
-                decoration: const InputDecoration(
-                  labelText: "Select Doctor",
-                  border: OutlineInputBorder(),
+              // Display selected doctor info
+              if (selectedDoctorInfo != null) ...[
+                const SizedBox(height: 12),
+                Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "${selectedDoctorInfo!['doctorName']} (${selectedDoctorInfo!['specialization']})",
+                          style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "Clinic: ${selectedDoctorInfo!['clinicName']}",
+                          style: const TextStyle(
+                              fontSize: 14, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          "Address: ${selectedDoctorInfo!['address']}",
+                          style: const TextStyle(
+                              fontSize: 14, color: Colors.black87),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+              ],
+
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -299,6 +334,38 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                 ),
               ),
               const SizedBox(height: 20),
+
+              // Patient Details
+              const Text(
+                "Patient Details",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: selectedPatientId,
+                items: patients.map<DropdownMenuItem<String>>((patient) {
+                  return DropdownMenuItem<String>(
+                    value: patient['patient_id'],
+                    child: Text(patient['name']),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    selectedPatientId = value;
+                  });
+                },
+                decoration: const InputDecoration(
+                  labelText: "Select Patient",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text("Name: $patientName"),
+              Text("Age: $patientAge"),
+              Text("Gender: $patientGender"),
+              const SizedBox(height: 20),
+
+              // Reason
               TextField(
                 controller: reasonController,
                 decoration: const InputDecoration(
@@ -308,17 +375,19 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                 maxLines: 3,
               ),
               const SizedBox(height: 30),
+
+              // Book Appointment button
               SizedBox(
                 width: double.infinity,
                 child: Container(
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)], // teal → sky blue
+                      colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
+                    boxShadow: const [
                       BoxShadow(
                         color: Colors.black26,
                         blurRadius: 6,
@@ -327,7 +396,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                     ],
                   ),
                   child: ElevatedButton(
-                    onPressed: bookAppointment, // ✅ logic unchanged
+                    onPressed: bookAppointment,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       shadowColor: Colors.transparent,

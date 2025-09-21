@@ -45,4 +45,19 @@ class AuthService {
     if (response == null) return null;
     return response['name'] as String?;
   }
+
+  // ✅ Get current doctor's ID from doctors table
+  Future<String?> getCurrentDoctorId() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+
+    final response = await _supabase
+        .from('doctors')
+        .select('doctor_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    if (response == null) return null;
+    return response['doctor_id'] as String?;
+  }
 }

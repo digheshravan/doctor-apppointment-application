@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/doctor/assistant_requests.dart';
+import 'package:medi_slot/screens/doctor/edit_clinic_page.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DoctorHome extends StatefulWidget {
   const DoctorHome({super.key});
@@ -13,20 +15,46 @@ class DoctorHome extends StatefulWidget {
 class _DoctorHomeState extends State<DoctorHome> {
   final authService = AuthService();
   String? userName;
+  String? doctorId;
   bool isLoading = true;
+  List<Map<String, dynamic>> clinics = []; // ✅ store clinics
 
   @override
   void initState() {
     super.initState();
-    fetchUserName();
+    fetchUserData();
   }
 
-  Future<void> fetchUserName() async {
+  Future<void> fetchUserData() async {
     final name = await authService.getCurrentUserName();
+    final id = await authService.getCurrentDoctorId();
     setState(() {
       userName = name ?? "Doctor";
+      doctorId = id;
+    });
+
+    if (id != null) {
+      await fetchClinics(id);
+    }
+
+    setState(() {
       isLoading = false;
     });
+  }
+
+  Future<void> fetchClinics(String doctorId) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('clinic_locations')
+          .select()
+          .eq('doctor_id', doctorId);
+
+      setState(() {
+        clinics = List<Map<String, dynamic>>.from(response);
+      });
+    } catch (e) {
+      debugPrint("Error fetching clinics: $e");
+    }
   }
 
   Future<void> logout(BuildContext context) async {
@@ -47,15 +75,27 @@ class _DoctorHomeState extends State<DoctorHome> {
     );
   }
 
+  void goToEditClinic() {
+    if (doctorId == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditClinicPage(doctorId: doctorId!),
+      ),
+    ).then((_) {
+      // ✅ refresh clinics after editing
+      if (doctorId != null) fetchClinics(doctorId!);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ Gradient AppBar with Logout
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)], // teal → sky blue
+              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -75,7 +115,6 @@ class _DoctorHomeState extends State<DoctorHome> {
           ),
         ],
       ),
-
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: isLoading
@@ -83,7 +122,6 @@ class _DoctorHomeState extends State<DoctorHome> {
             : Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ Welcome Text
             Text(
               "Welcome, Dr. ${userName ?? 'Doctor'} 🩺",
               style: const TextStyle(
@@ -92,14 +130,50 @@ class _DoctorHomeState extends State<DoctorHome> {
                 color: Colors.deepPurple,
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
 
-            // ✅ Responsive Grid
+            // ✅ Temporary container to show clinics
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.blueAccent),
+              ),
+              child: clinics.isEmpty
+                  ? const Text(
+                "No clinics linked yet.",
+                style: TextStyle(color: Colors.grey),
+              )
+                  : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Your Clinics:",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.blue),
+                  ),
+                  const SizedBox(height: 10),
+                  ...clinics.map((clinic) => ListTile(
+                    leading: const Icon(Icons.local_hospital,
+                        color: Colors.redAccent),
+                    title: Text(clinic['clinic_name'] ??
+                        "Unnamed Clinic"),
+                    subtitle: Text(
+                        clinic['address'] ?? "No address"),
+                  )),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 30),
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   int crossAxisCount =
-                  constraints.maxWidth > 600 ? 2 : 1; // responsive
+                  constraints.maxWidth > 600 ? 2 : 1;
                   return GridView.count(
                     crossAxisCount: crossAxisCount,
                     crossAxisSpacing: 20,
@@ -110,23 +184,25 @@ class _DoctorHomeState extends State<DoctorHome> {
                         icon: Icons.edit_note,
                         color: Colors.teal,
                         title: "Write Prescription",
-                        onTap: () {
-                          // TODO: Navigate to Write Prescription screen
-                        },
+                        onTap: () {},
                       ),
                       DashboardCard(
                         icon: Icons.assignment,
                         color: Colors.indigo,
                         title: "View Prescriptions",
-                        onTap: () {
-                          // TODO: Navigate to View Prescriptions screen
-                        },
+                        onTap: () {},
                       ),
                       DashboardCard(
                         icon: Icons.group,
                         color: Colors.orange,
                         title: "View Assistant Requests",
                         onTap: goToAssistantRequests,
+                      ),
+                      DashboardCard(
+                        icon: Icons.local_hospital,
+                        color: Colors.redAccent,
+                        title: "Edit Clinic Details",
+                        onTap: goToEditClinic,
                       ),
                     ],
                   );
@@ -172,8 +248,6 @@ class DashboardCard extends StatelessWidget {
                 child: Icon(icon, size: 30, color: color),
               ),
               const SizedBox(width: 20),
-
-              // ✅ Expanded prevents overflow
               Expanded(
                 child: Text(
                   title,
