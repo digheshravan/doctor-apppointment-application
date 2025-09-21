@@ -5,14 +5,15 @@ import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class BookAppointmentPage extends StatefulWidget {
-  const BookAppointmentPage({Key? key}) : super(key: key);
+  final Map<String, dynamic>? preselectedDoctor; // optional preselected doctor
+
+  const BookAppointmentPage({Key? key, this.preselectedDoctor}) : super(key: key);
 
   @override
   State<BookAppointmentPage> createState() => _BookAppointmentPageState();
 }
 
 class _BookAppointmentPageState extends State<BookAppointmentPage> {
-  Map<String, dynamic>? _selectedDoctor; // Store selected doctor data
   final supabase = Supabase.instance.client;
 
   String? selectedPatientId;
@@ -40,9 +41,17 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   @override
   void initState() {
     super.initState();
+
+    // If a doctor is passed from dashboard, set it as selected
+    if (widget.preselectedDoctor != null) {
+      selectedDoctor = widget.preselectedDoctor;
+      selectedDoctorInfo = widget.preselectedDoctor;
+    }
+
     fetchPatients();
   }
 
+  // Fetch patients
   Future<void> fetchPatients() async {
     try {
       final user = supabase.auth.currentUser;
@@ -65,6 +74,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
+  // Fetch appointments
   Future<void> fetchAppointments() async {
     if (selectedPatientId == null) return;
     try {
@@ -84,6 +94,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
+  // Check slot availability
   Future<bool> canBookSlot(String doctorId, DateTime date, String slot) async {
     final appointmentDate = DateFormat('yyyy-MM-dd').format(date);
 
@@ -97,6 +108,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     return response.length < 6; // Max 6 patients per slot
   }
 
+  // Book appointment
   Future<void> bookAppointment() async {
     if (selectedPatientId == null ||
         selectedDoctor == null ||
@@ -166,6 +178,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
+  // Open doctor map page and select doctor
   Future<void> selectDoctorOnMap() async {
     final selected = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -173,12 +186,29 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     );
 
     if (selected != null) {
+      // Map returned keys to consistent naming
+      final doctorId = selected['doctorId'] ?? selected['doctor_id'];
+      final doctorName = selected['doctorName'] ?? selected['doctor_name'] ?? "Unknown";
+      final specialization = selected['specialization'] ?? "General";
+      final clinicName = selected['clinicName'] ?? selected['clinic_name'] ?? "N/A";
+      final address = selected['address'] ?? "N/A";
+
       setState(() {
-        selectedDoctorInfo = selected;
+        // Info for display card
+        selectedDoctorInfo = {
+          'doctorName': doctorName,
+          'specialization': specialization,
+          'clinicName': clinicName,
+          'address': address,
+        };
+
+        // Info for booking submission
         selectedDoctor = {
-          'doctor_id': selected['doctorId'],
-          'name': selected['doctorName'],
-          'specialization': selected['specialization'],
+          'doctor_id': doctorId,
+          'name': doctorName,
+          'specialization': specialization,
+          'clinicName': clinicName,
+          'address': address,
         };
       });
     }
@@ -224,23 +254,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
             children: [
               // Doctor selection
               GestureDetector(
-                onTap: () async {
-                  final selected = await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DoctorMapPage()),
-                  );
-
-                  if (selected != null) {
-                    setState(() {
-                      selectedDoctorInfo = selected;
-                      selectedDoctor = {
-                        'doctor_id': selected['doctorId'],
-                        'name': selected['doctorName'],
-                        'specialization': selected['specialization'],
-                      };
-                    });
-                  }
-                },
+                onTap: selectDoctorOnMap,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                   decoration: BoxDecoration(
@@ -253,7 +267,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                       Text(
                         selectedDoctor == null
                             ? "Select Doctor – Tap to view map"
-                            : "Selected: ${selectedDoctor?['name'] ?? 'Unknown'}",
+                            : "Selected: Dr. ${selectedDoctor?['name'] ?? 'Unknown'}",
                         style: const TextStyle(fontSize: 16),
                       ),
                       const Icon(Icons.search, color: Colors.blue),
@@ -261,6 +275,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                   ),
                 ),
               ),
+
               // Display selected doctor info
               if (selectedDoctorInfo != null) ...[
                 const SizedBox(height: 12),
@@ -275,7 +290,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "${selectedDoctorInfo!['doctorName']} (${selectedDoctorInfo!['specialization']})",
+                          "Dr. ${selectedDoctorInfo!['doctorName']} (${selectedDoctorInfo!['specialization']})",
                           style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -283,13 +298,13 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          "Clinic: ${selectedDoctorInfo!['clinicName']}",
+                          "Clinic: ${selectedDoctorInfo!['clinicName'] ?? 'N/A'}",
                           style: const TextStyle(
                               fontSize: 14, color: Colors.black87),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          "Address: ${selectedDoctorInfo!['address']}",
+                          "Address: ${selectedDoctorInfo!['address'] ?? 'N/A'}",
                           style: const TextStyle(
                               fontSize: 14, color: Colors.black87),
                         ),

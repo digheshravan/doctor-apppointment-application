@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/patient/book_appointment.dart';
-import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:medi_slot/screens/patient/view_appointments.dart';
 import 'package:medi_slot/screens/patient/manage_appointments.dart';
 import 'package:medi_slot/screens/patient/patient_profiles.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'doctor_map_page.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -75,7 +75,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)], // teal → sky blue
+              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -130,36 +130,25 @@ class _PatientDashboardState extends State<PatientDashboard> {
               ),
               const SizedBox(height: 20),
 
-              /// ✅ Search Doctor Card
-              DashboardCard(
-                icon: Icons.search,
-                color: Colors.teal,
-                title: "Search Doctor",
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const DoctorMapPage(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-
+              /// ✅ Book Appointment Card
               DashboardCard(
                 icon: Icons.add_circle,
                 color: Colors.green,
                 title: "Book Appointment",
                 onTap: () {
+                  // Directly navigate to BookAppointmentPage
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const BookAppointmentPage(),
+                      builder: (_) => const BookAppointmentPage(), // No preselected doctor
                     ),
                   );
                 },
               ),
+
               const SizedBox(height: 20),
+
+              /// ✅ View Appointments Card
               DashboardCard(
                 icon: Icons.calendar_today,
                 color: Colors.orange,
@@ -174,6 +163,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 },
               ),
               const SizedBox(height: 20),
+
+              /// ✅ Manage Appointments Card
               DashboardCard(
                 icon: Icons.manage_accounts,
                 color: Colors.purple,
@@ -224,7 +215,7 @@ class DashboardCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 30,
-                backgroundColor: color.withValues(alpha: 0.2),
+                backgroundColor: color.withOpacity(0.2),
                 child: Icon(icon, size: 30, color: color),
               ),
               const SizedBox(width: 20),

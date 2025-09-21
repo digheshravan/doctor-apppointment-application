@@ -76,8 +76,6 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
       )
     ''').order('clinic_name', ascending: true);
 
-      debugPrint("Fetched clinics: ${response.toString()}"); // 👈 ADD THIS
-
       final List<Map<String, dynamic>> fetched =
       List<Map<String, dynamic>>.from(response ?? []);
 
@@ -87,20 +85,21 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
       });
 
       _applyMarkers();
-
-      // Safely move to first clinic location
-      if (_clinics.isNotEmpty && _mapController != null) {
-        final first = _clinics.first;
-        final lat = _toDouble(first['latitude']);
-        final lng = _toDouble(first['longitude']);
-        if (lat != null && lng != null) {
-          _mapController!.animateCamera(
-            CameraUpdate.newLatLngZoom(LatLng(lat, lng), 13),
-          );
-        }
-      }
+      _moveCameraToFirstClinic();
     } catch (e) {
       debugPrint('❌ Error fetching clinics: $e');
+    }
+  }
+
+  void _moveCameraToFirstClinic() {
+    if (_filteredClinics.isNotEmpty && _mapController != null) {
+      final first = _filteredClinics.first;
+      final lat = _toDouble(first['latitude']);
+      final lng = _toDouble(first['longitude']);
+      if (lat != null && lng != null) {
+        _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(LatLng(lat, lng), 13));
+      }
     }
   }
 
@@ -112,18 +111,16 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
     return null;
   }
 
-  String _extractDoctorName(Map<String, dynamic> clinic) {
+  String _extractDoctorName(dynamic doctorNode) {
     try {
-      final doctorsNode = clinic['doctors'];
-      if (doctorsNode == null) return 'Unknown';
-
-      if (doctorsNode is List && doctorsNode.isNotEmpty) {
-        final profiles = doctorsNode.first['profiles'];
+      if (doctorNode == null) return 'Unknown';
+      if (doctorNode is List && doctorNode.isNotEmpty) {
+        final profiles = doctorNode.first['profiles'];
         if (profiles is Map && profiles['name'] != null) {
           return profiles['name'].toString();
         }
-      } else if (doctorsNode is Map) {
-        final profiles = doctorsNode['profiles'];
+      } else if (doctorNode is Map) {
+        final profiles = doctorNode['profiles'];
         if (profiles is Map && profiles['name'] != null) {
           return profiles['name'].toString();
         }
@@ -132,14 +129,13 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
     return 'Unknown';
   }
 
-  String _extractDoctorSpecialization(Map<String, dynamic> clinic) {
+  String _extractDoctorSpecialization(dynamic doctorNode) {
     try {
-      final doctorsNode = clinic['doctors'];
-      if (doctorsNode == null) return 'N/A';
-      if (doctorsNode is List && doctorsNode.isNotEmpty) {
-        return doctorsNode.first['specialization']?.toString() ?? 'N/A';
-      } else if (doctorsNode is Map) {
-        return doctorsNode['specialization']?.toString() ?? 'N/A';
+      if (doctorNode == null) return 'N/A';
+      if (doctorNode is List && doctorNode.isNotEmpty) {
+        return doctorNode.first['specialization']?.toString() ?? 'N/A';
+      } else if (doctorNode is Map) {
+        return doctorNode['specialization']?.toString() ?? 'N/A';
       }
     } catch (_) {}
     return 'N/A';
@@ -160,7 +156,7 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
           infoWindow: InfoWindow(
             title: clinic['clinic_name'] ?? 'Clinic',
             snippet:
-            '${_extractDoctorName(clinic)} • ${clinic['address'] ?? ''}',
+            '${_extractDoctorName(clinic['doctors'])} • ${clinic['address'] ?? ''}',
           ),
           onTap: () => _showClinicBottomSheet(clinic),
         ),
@@ -179,39 +175,35 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
     if (q.isEmpty) {
       _filteredClinics = List<Map<String, dynamic>>.from(_clinics);
       _applyMarkers();
+      _moveCameraToFirstClinic();
       return;
     }
 
     final results = _clinics.where((clinic) {
       final clinicName = (clinic['clinic_name'] ?? '').toString().toLowerCase();
       final address = (clinic['address'] ?? '').toString().toLowerCase();
-      final doctorName = _extractDoctorName(clinic).toLowerCase();
-      return clinicName.contains(q) || address.contains(q) || doctorName.contains(q);
+      final doctorName = _extractDoctorName(clinic['doctors']).toLowerCase();
+      return clinicName.contains(q) ||
+          address.contains(q) ||
+          doctorName.contains(q);
     }).toList();
 
     setState(() {
       _filteredClinics = results;
     });
     _applyMarkers();
-
-    if (_filteredClinics.isNotEmpty && _mapController != null) {
-      final fc = _filteredClinics.first;
-      final lat = _toDouble(fc['latitude']);
-      final lng = _toDouble(fc['longitude']);
-      if (lat != null && lng != null) {
-        _mapController!.animateCamera(
-            CameraUpdate.newLatLngZoom(LatLng(lat, lng), 13));
-      }
-    }
+    _moveCameraToFirstClinic();
   }
 
   void _showClinicBottomSheet(Map<String, dynamic> clinic) {
-    final doctorName = _extractDoctorName(clinic);
-    final specialization = _extractDoctorSpecialization(clinic);
+    final doctorNode = clinic['doctors'];
+    final doctorName = _extractDoctorName(doctorNode);
+    final specialization = _extractDoctorSpecialization(doctorNode);
+
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape:
+      const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) {
         return Padding(
           padding: const EdgeInsets.all(20),
@@ -228,7 +220,8 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
                   Text(clinic['clinic_name'] ?? 'Unnamed Clinic',
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
                   const SizedBox(height: 4),
-                  Text('Dr. $doctorName ($specialization)', style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                  Text('Dr. $doctorName ($specialization)',
+                      style: const TextStyle(fontSize: 14, color: Colors.black87)),
                 ]),
               )
             ]),
@@ -236,7 +229,7 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
             Text('Address: ${clinic['address'] ?? 'Not available'}', style: const TextStyle(fontSize: 14)),
             const SizedBox(height: 18),
             SizedBox(
-              width: double.infinity,
+                width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -244,19 +237,15 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () {
-                    final doctor = clinic['doctors']; // doctors is a Map
+                    if (doctorNode != null) {
+                      final selectedDoctor = doctorNode is List ? doctorNode.first : doctorNode;
 
-                    if (doctor != null) {
-                      final doctorId = doctor['doctor_id'];
-                      final doctorName = doctor['profiles'] != null
-                          ? doctor['profiles']['name']
-                          : "Unknown Doctor";
-                      final specialization = doctor['specialization'] ?? "General";
+                      final doctorName = (selectedDoctor['profiles']?['name'] ?? 'Unknown').toString();
+                      final specialization = selectedDoctor['specialization'] ?? 'N/A';
 
-                      // Return doctor info back to BookAppointmentPage
                       Navigator.pop(context); // close bottom sheet
                       Navigator.pop(context, {
-                        'doctorId': doctorId,
+                        'doctorId': selectedDoctor['doctor_id'],
                         'doctorName': doctorName,
                         'clinicName': clinic['clinic_name'],
                         'address': clinic['address'],
@@ -268,12 +257,8 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
                       );
                     }
                   },
-                  child: const Text(
-                    'Book Appointment',
-                    style: TextStyle(fontSize: 16, color: Colors.white),
-                  ),
-                )
-            ),
+                  child: const Text('Book Appointment', style: TextStyle(fontSize: 16, color: Colors.white)),
+                )),
           ]),
         );
       },
@@ -295,7 +280,10 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
         centerTitle: true,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+            gradient: LinearGradient(
+                colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight),
           ),
         ),
       ),
@@ -305,14 +293,7 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
           markers: _markers,
           onMapCreated: (controller) {
             _mapController = controller;
-            if (_clinics.isNotEmpty) {
-              final first = _clinics.first;
-              final lat = _toDouble(first['latitude']);
-              final lng = _toDouble(first['longitude']);
-              if (lat != null && lng != null) {
-                _mapController!.moveCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 13));
-              }
-            }
+            _moveCameraToFirstClinic();
           },
         ),
         Positioned(
