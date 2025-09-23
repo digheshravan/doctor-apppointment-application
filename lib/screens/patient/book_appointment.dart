@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:medi_slot/screens/patient/patient.dart';
 import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 class BookAppointmentPage extends StatefulWidget {
   final Map<String, dynamic>? preselectedDoctor; // optional preselected doctor
@@ -313,16 +314,58 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                   ),
                 ),
               ],
-
               const SizedBox(height: 20),
-              Row(
+
+              // Date selection
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: pickDate,
-                      child: Text(selectedDate == null
-                          ? "Pick Date"
-                          : DateFormat('yyyy-MM-dd').format(selectedDate!)),
+                  const Text(
+                    "Select Date",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  // Replace only the TableCalendar widget in your code with this 👇
+
+                  TableCalendar(
+                    firstDay: DateTime.utc(2020, 1, 1), // show full month
+                    lastDay: DateTime.utc(2030, 12, 31),
+                    focusedDay: selectedDate ?? DateTime.now(),
+                    calendarFormat: CalendarFormat.month, // show full month
+                    availableCalendarFormats: const {
+                      CalendarFormat.month: 'Month',
+                    },
+                    selectedDayPredicate: (day) {
+                      return isSameDay(selectedDate, day);
+                    },
+                    onDaySelected: (selectedDay, focusedDay) {
+                      // Allow selecting only if within next 5 days
+                      final now = DateTime.now();
+                      final fiveDaysLater = now.add(const Duration(days: 5));
+                      if (selectedDay.isAfter(now.subtract(const Duration(days: 1))) &&
+                          selectedDay.isBefore(fiveDaysLater.add(const Duration(days: 1)))) {
+                        setState(() {
+                          selectedDate = selectedDay;
+                        });
+                      }
+                    },
+                    enabledDayPredicate: (day) {
+                      // Enable only today + next 5 days
+                      final now = DateTime.now();
+                      final fiveDaysLater = now.add(const Duration(days: 5));
+                      return day.isAfter(now.subtract(const Duration(days: 1))) &&
+                          day.isBefore(fiveDaysLater.add(const Duration(days: 1)));
+                    },
+                    calendarStyle: CalendarStyle(
+                      todayDecoration: BoxDecoration(
+                        color: Colors.teal,
+                        shape: BoxShape.circle,
+                      ),
+                      selectedDecoration: BoxDecoration(
+                        color: Colors.orange,
+                        shape: BoxShape.circle,
+                      ),
+                      disabledTextStyle: TextStyle(color: Colors.grey.shade400), // greyed out
                     ),
                   ),
                 ],

@@ -20,7 +20,7 @@ class DoctorAppointmentApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Doctor Appointment App',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
         useMaterial3: true,
       ),
       home: const Splash(),

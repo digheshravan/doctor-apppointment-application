@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/doctor/assistant_requests.dart';
 import 'package:medi_slot/screens/doctor/edit_clinic_page.dart';
+import 'package:medi_slot/screens/doctor/manage_clinics.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DoctorHome extends StatefulWidget {
   const DoctorHome({super.key});
@@ -17,7 +17,6 @@ class _DoctorHomeState extends State<DoctorHome> {
   String? userName;
   String? doctorId;
   bool isLoading = true;
-  List<Map<String, dynamic>> clinics = []; // ✅ store clinics
 
   @override
   void initState() {
@@ -31,30 +30,8 @@ class _DoctorHomeState extends State<DoctorHome> {
     setState(() {
       userName = name ?? "Doctor";
       doctorId = id;
-    });
-
-    if (id != null) {
-      await fetchClinics(id);
-    }
-
-    setState(() {
       isLoading = false;
     });
-  }
-
-  Future<void> fetchClinics(String doctorId) async {
-    try {
-      final response = await Supabase.instance.client
-          .from('clinic_locations')
-          .select()
-          .eq('doctor_id', doctorId);
-
-      setState(() {
-        clinics = List<Map<String, dynamic>>.from(response);
-      });
-    } catch (e) {
-      debugPrint("Error fetching clinics: $e");
-    }
   }
 
   Future<void> logout(BuildContext context) async {
@@ -75,17 +52,14 @@ class _DoctorHomeState extends State<DoctorHome> {
     );
   }
 
-  void goToEditClinic() {
+  void goToManageClinics() {
     if (doctorId == null) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => EditClinicPage(doctorId: doctorId!),
+        builder: (_) => ManageClinicsPage(doctorId: doctorId!),
       ),
-    ).then((_) {
-      // ✅ refresh clinics after editing
-      if (doctorId != null) fetchClinics(doctorId!);
-    });
+    );
   }
 
   @override
@@ -130,44 +104,6 @@ class _DoctorHomeState extends State<DoctorHome> {
                 color: Colors.deepPurple,
               ),
             ),
-            const SizedBox(height: 20),
-
-            // ✅ Temporary container to show clinics
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blueAccent),
-              ),
-              child: clinics.isEmpty
-                  ? const Text(
-                "No clinics linked yet.",
-                style: TextStyle(color: Colors.grey),
-              )
-                  : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Your Clinics:",
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.blue),
-                  ),
-                  const SizedBox(height: 10),
-                  ...clinics.map((clinic) => ListTile(
-                    leading: const Icon(Icons.local_hospital,
-                        color: Colors.redAccent),
-                    title: Text(clinic['clinic_name'] ??
-                        "Unnamed Clinic"),
-                    subtitle: Text(
-                        clinic['address'] ?? "No address"),
-                  )),
-                ],
-              ),
-            ),
-
             const SizedBox(height: 30),
             Expanded(
               child: LayoutBuilder(
@@ -201,8 +137,8 @@ class _DoctorHomeState extends State<DoctorHome> {
                       DashboardCard(
                         icon: Icons.local_hospital,
                         color: Colors.redAccent,
-                        title: "Edit Clinic Details",
-                        onTap: goToEditClinic,
+                        title: "Manage Clinic Details",
+                        onTap: goToManageClinics,
                       ),
                     ],
                   );
