@@ -28,8 +28,7 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
       final response = await Supabase.instance.client
           .from('clinic_locations')
           .select(
-        'clinic_id, clinic_name, address, latitude, longitude, doctor_id',
-      )
+          'clinic_id, clinic_name, address, latitude, longitude, doctor_id')
           .eq('doctor_id', widget.doctorId);
 
       if (mounted) {
@@ -77,7 +76,7 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
     fetchClinics();
   }
 
-  Future<void> _deleteClinic(int clinicId) async {
+  Future<void> _deleteClinic(String clinicId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -122,6 +121,32 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
     }
   }
 
+  /// Fetch assistants assigned to a clinic
+  Future<List<Map<String, dynamic>>> fetchAssignedAssistants(
+      String clinicId) async {
+    try {
+      final assigned = await Supabase.instance.client
+          .from('clinic_assistants')
+          .select('assistant_id')
+          .eq('clinic_id', clinicId);
+
+      final assistantIds =
+      List<String>.from(assigned.map((a) => a['assistant_id'].toString()));
+
+      if (assistantIds.isEmpty) return [];
+
+      final assistants = await Supabase.instance.client
+          .from('assistants')
+          .select('assistant_id, profiles(name)')
+          .filter('assistant_id', 'in', assistantIds);
+
+      return List<Map<String, dynamic>>.from(assistants);
+    } catch (e) {
+      debugPrint("Error fetching assistants: $e");
+      return [];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -140,26 +165,23 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      floatingActionButton: ClipRRect(
-        borderRadius: BorderRadius.circular(100.0),
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          child: FloatingActionButton.extended(
-            backgroundColor: Colors.transparent,
-            elevation: 0.0,
-            highlightElevation: 0.0,
-            onPressed: goToAddClinic,
-            label: const Text(
-              'Add Clinic',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            icon: const Icon(Icons.add, color: Colors.white),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: FloatingActionButton.extended(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          onPressed: goToAddClinic,
+          icon: const Icon(Icons.add, color: Colors.white),
+          label: const Text(
+            'Add Clinic',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
         ),
       ),
@@ -181,31 +203,139 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
             itemCount: clinics.length,
             itemBuilder: (context, index) {
               final clinic = clinics[index];
-              return Card(
+              return Container(
                 margin: const EdgeInsets.symmetric(vertical: 8),
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.shade300,
+                      blurRadius: 6,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF56CCF2), Color(0xFF2F80ED)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
-                child: ListTile(
-                  leading: const Icon(Icons.local_hospital,
-                      color: Colors.teal),
-                  title: Text(clinic['clinic_name'] ?? "Unnamed Clinic"),
-                  subtitle: Text(clinic['address'] ?? "No address"),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: ExpansionTile(
+                    iconColor: Colors.white,
+                    collapsedIconColor: Colors.white,
+                    title: Row(
+                      children: [
+                        // Small logo
+                        Image.asset(
+                          'assets/icon/doctor_marker.png',
+                          width: 24,
+                          height: 24,
+                        ),
+                        const SizedBox(width: 8),
+                        // Flexible instead of Expanded, with overflow handling
+                        Flexible(
+                          child: Text(
+                            clinic['clinic_name'] ?? "Unnamed Clinic",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    childrenPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: () => goToEditClinic(clinic),
-                        tooltip: 'Edit Clinic',
+                      // Address
+                      // Address
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on, size: 20, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              clinic['address'] ?? "No address",
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.white, // Changed from white70 to white
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete,
-                            color: Colors.redAccent),
-                        onPressed: () =>
-                            _deleteClinic(clinic['clinic_id']),
-                        tooltip: 'Delete Clinic',
+                      const SizedBox(height: 8),
+// Assigned assistants
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: fetchAssignedAssistants(clinic['clinic_id']),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            );
+                          }
+                          if (snapshot.hasError) {
+                            return const Text(
+                              'Error loading assistants',
+                              style: TextStyle(color: Colors.red),
+                            );
+                          }
+                          final assistants = snapshot.data ?? [];
+                          if (assistants.isEmpty) {
+                            return const Text(
+                              'No assistants assigned',
+                              style: TextStyle(color: Colors.white),
+                            ); // Changed color here
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: assistants.map((a) {
+                              return Row(
+                                children: [
+                                  const Icon(Icons.person, size: 20, color: Colors.white),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    a['profiles']?['name'] ?? "Unnamed",
+                                    style: const TextStyle(color: Colors.white), // Changed color
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      // Edit & Delete buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () => goToEditClinic(clinic),
+                            icon: const Icon(Icons.edit),
+                            label: const Text('Edit'),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red.shade400,
+                            ),
+                            onPressed: () =>
+                                _deleteClinic(clinic['clinic_id']),
+                            icon: const Icon(Icons.delete),
+                            label: const Text('Delete'),
+                          ),
+                        ],
                       ),
                     ],
                   ),

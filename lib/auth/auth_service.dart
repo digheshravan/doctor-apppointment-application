@@ -60,4 +60,20 @@ class AuthService {
     if (response == null) return null;
     return response['doctor_id'] as String?;
   }
+  String? get currentUserId => _supabase.auth.currentUser?.id;
+
+  Future<String?> getCurrentAssistantId() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+
+    final response = await _supabase
+        .from('assistants')
+        .select('assistant_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    if (response == null) return null;
+    return response['assistant_id'] as String?;
+  }
+
 }

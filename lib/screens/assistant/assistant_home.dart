@@ -1,7 +1,9 @@
+// assistant_dashboard.dart
 import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/assistant/manage_appointments.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
+import 'assigned_clinics_page.dart'; // Import Assigned Clinics page
 
 class AssistantDashboard extends StatefulWidget {
   const AssistantDashboard({super.key});
@@ -11,24 +13,37 @@ class AssistantDashboard extends StatefulWidget {
 }
 
 class _AssistantDashboardState extends State<AssistantDashboard> {
-  final authService = AuthService();
+  final AuthService authService = AuthService();
   String? userName;
+  String? assistantId;
   bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    fetchUserName();
+    initDashboard();
   }
 
-  Future<void> fetchUserName() async {
-    final name = await authService.getCurrentUserName();
-    setState(() {
-      userName = name ?? "Assistant";
-      isLoading = false;
-    });
+  /// Initialize user and assistant info
+  Future<void> initDashboard() async {
+    setState(() => isLoading = true);
+
+    try {
+      final name = await authService.getCurrentUserName();
+      final id = await authService.getCurrentAssistantId();
+
+      setState(() {
+        userName = name ?? "Assistant";
+        assistantId = id;
+        isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("Error initializing dashboard: $e");
+      setState(() => isLoading = false);
+    }
   }
 
+  /// Logout function
   Future<void> logout(BuildContext context) async {
     await authService.signOut();
     if (mounted) {
@@ -40,16 +55,15 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Gradient AppBar with Logout
+      // Gradient AppBar
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)], // teal → sky blue
+              colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -69,7 +83,6 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
           ),
         ],
       ),
-
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: isLoading
@@ -114,7 +127,7 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
             ),
             const SizedBox(height: 20),
 
-            // Extra feature for assistants
+            // Manage Patients
             DashboardCard(
               icon: Icons.people,
               color: Colors.blue,
@@ -123,6 +136,25 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
                 // TODO: Navigate to Manage Patients screen
               },
             ),
+            const SizedBox(height: 20),
+
+            // Assigned Clinics
+            if (assistantId != null)
+              DashboardCard(
+                icon: Icons.local_hospital_outlined,
+                color: Colors.purple,
+                title: "Assigned Clinics",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AssignedClinicsPage(
+                        assistantId: assistantId!,
+                      ),
+                    ),
+                  );
+                },
+              ),
           ],
         ),
       ),
@@ -130,6 +162,7 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
   }
 }
 
+/// DashboardCard Widget
 class DashboardCard extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -158,16 +191,18 @@ class DashboardCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 30,
-                backgroundColor: color.withValues(alpha: 0.1), // ✅
+                backgroundColor: color.withValues(alpha: 0.1),
                 child: Icon(icon, size: 30, color: color),
               ),
               const SizedBox(width: 20),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
             ],

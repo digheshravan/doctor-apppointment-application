@@ -24,14 +24,51 @@ class _EditClinicPageState extends State<EditClinicPage> {
 
   final supabase = Supabase.instance.client;
 
+  // Assistants data
+  List<Map<String, dynamic>> assistants = [];
+  List<String> selectedAssistantIds = [];
+
   @override
   void initState() {
     super.initState();
-    // Pre-fill fields with existing data
     _clinicNameController.text = widget.clinicData['clinic_name'] ?? '';
     _addressController.text = widget.clinicData['address'] ?? '';
     _latitude = widget.clinicData['latitude'];
     _longitude = widget.clinicData['longitude'];
+
+    fetchAssistants();
+  }
+
+  Future<void> fetchAssistants() async {
+    try {
+      // Fetch all assistants of the doctor
+      final response = await supabase
+          .from('assistants')
+          .select('assistant_id, profiles(name)')
+          .eq('assigned_doctor_id', widget.doctorId);
+
+      setState(() {
+        assistants = List<Map<String, dynamic>>.from(response);
+      });
+
+      // Fetch assistants already assigned to this clinic
+      if (widget.clinicData['clinic_id'] != null) {
+        final assigned = await supabase
+            .from('clinic_assistants')
+            .select('assistant_id')
+            .eq('clinic_id', widget.clinicData['clinic_id'].toString());
+
+        setState(() {
+          selectedAssistantIds = List<Map<String, dynamic>>.from(assigned)
+              .map((a) => a['assistant_id'].toString())
+              .toList();
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("❌ Error loading assistants: $e")),
+      );
+    }
   }
 
   Future<void> _saveClinic() async {
@@ -43,21 +80,45 @@ class _EditClinicPageState extends State<EditClinicPage> {
     }
 
     try {
-      await supabase.from('clinic_locations').upsert(
-        {
-          'id': widget.clinicData['id'], // keep id if updating
-          'doctor_id': widget.doctorId,
-          'clinic_name': _clinicNameController.text,
-          'address': _addressController.text,
-          'latitude': _latitude,
-          'longitude': _longitude,
-        },
-        onConflict: 'id',
-      );
+      // Build clinic data
+      final clinicData = {
+        'doctor_id': widget.doctorId,
+        'clinic_name': _clinicNameController.text,
+        'address': _addressController.text,
+        'latitude': _latitude,
+        'longitude': _longitude,
+      };
+
+      if (widget.clinicData['clinic_id'] != null) {
+        clinicData['clinic_id'] = widget.clinicData['clinic_id'].toString();
+      }
+
+      // Upsert clinic
+      final clinic = await supabase
+          .from('clinic_locations')
+          .upsert(clinicData, onConflict: 'clinic_id')
+          .select()
+          .single();
+
+      final clinicId = clinic['clinic_id'].toString();
+
+      // Upsert assigned assistants (id is auto-generated in DB)
+      if (selectedAssistantIds.isNotEmpty) {
+        final data = selectedAssistantIds
+            .map((assistantId) => {
+          'clinic_id': clinicId,
+          'assistant_id': assistantId.toString(),
+        })
+            .toList();
+
+        await supabase.from('clinic_assistants').upsert(
+          data,
+          onConflict: 'clinic_id,assistant_id', // unique constraint
+        );
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('✅ Clinic details updated successfully!')),
+        const SnackBar(content: Text('✅ Clinic details updated successfully!')),
       );
       Navigator.pop(context);
     } catch (e) {
@@ -67,10 +128,11 @@ class _EditClinicPageState extends State<EditClinicPage> {
     }
   }
 
-  Widget _buildTextField(
-      {required TextEditingController controller,
-        required String label,
-        required IconData icon}) {
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+  }) {
     return Card(
       elevation: 3,
       margin: const EdgeInsets.symmetric(vertical: 10),
@@ -102,7 +164,7 @@ class _EditClinicPageState extends State<EditClinicPage> {
           ),
         ),
         title: const Text(
-            "Edit Clinic",
+          "Edit Clinic",
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 4,
@@ -115,13 +177,44 @@ class _EditClinicPageState extends State<EditClinicPage> {
         child: Column(
           children: [
             _buildTextField(
-                controller: _clinicNameController,
-                label: "Clinic Name",
-                icon: Icons.local_hospital),
+              controller: _clinicNameController,
+              label: "Clinic Name",
+              icon: Icons.local_hospital,
+            ),
             _buildTextField(
-                controller: _addressController,
-                label: "Address",
-                icon: Icons.location_on),
+              controller: _addressController,
+              label: "Address",
+              icon: Icons.location_on,
+            ),
+            // Assistants Multi-Select
+            Card(
+              elevation: 3,
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ExpansionTile(
+                title: const Text("Assign Assistants"),
+                leading: const Icon(Icons.people, color: Colors.teal),
+                children: assistants.map((a) {
+                  final id = a['assistant_id'].toString();
+                  final name = a['profiles']?['name'] ?? "Unnamed";
+                  return CheckboxListTile(
+                    title: Text(name),
+                    value: selectedAssistantIds.contains(id),
+                    onChanged: (checked) {
+                      setState(() {
+                        if (checked == true) {
+                          selectedAssistantIds.add(id);
+                        } else {
+                          selectedAssistantIds.remove(id);
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
@@ -151,8 +244,7 @@ class _EditClinicPageState extends State<EditClinicPage> {
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                        content:
-                        Text("📍 Picked: $_latitude, $_longitude")),
+                        content: Text("📍 Picked: $_latitude, $_longitude")),
                   );
                 }
               },
@@ -169,12 +261,13 @@ class _EditClinicPageState extends State<EditClinicPage> {
               ),
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent, // transparent to show gradient
-                  shadowColor: Colors.transparent,     // remove shadow to look clean
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                 ),
                 icon: const Icon(Icons.save, color: Colors.white),
                 label: const Text(
