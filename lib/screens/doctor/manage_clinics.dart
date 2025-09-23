@@ -27,9 +27,10 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
     try {
       final response = await Supabase.instance.client
           .from('clinic_locations')
-          .select()
-          .eq('doctor_id', widget.doctorId)
-          .order('created_at', ascending: true);
+          .select(
+        'clinic_id, clinic_name, address, latitude, longitude, doctor_id',
+      )
+          .eq('doctor_id', widget.doctorId);
 
       if (mounted) {
         setState(() {
@@ -38,9 +39,14 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
         });
       }
     } catch (e) {
-      debugPrint("Error fetching clinics: $e");
       if (mounted) {
         setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load clinics: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -52,11 +58,9 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
         builder: (_) => EditClinicPage(
           doctorId: widget.doctorId,
           clinicData: const {},
-          // clinicData is empty, so EditClinicPage will be in "add" mode
         ),
       ),
     );
-    // Refresh list after potentially adding a new one
     fetchClinics();
   }
 
@@ -66,12 +70,10 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
       MaterialPageRoute(
         builder: (_) => EditClinicPage(
           doctorId: widget.doctorId,
-          clinicData: clinic, // ✅ pass existing clinic details
+          clinicData: clinic,
         ),
       ),
     );
-
-    // Refresh clinic list after editing
     fetchClinics();
   }
 
@@ -109,10 +111,8 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
           backgroundColor: Colors.green,
         ),
       );
-      // Refresh the list
       fetchClinics();
     } catch (e) {
-      debugPrint("Error deleting clinic: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error deleting clinic: ${e.toString()}'),
@@ -155,9 +155,10 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
             elevation: 0.0,
             highlightElevation: 0.0,
             onPressed: goToAddClinic,
-            label: const Text('Add Clinic',
-                style:
-                TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            label: const Text(
+              'Add Clinic',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
             icon: const Icon(Icons.add, color: Colors.white),
           ),
         ),
@@ -189,15 +190,13 @@ class _ManageClinicsPageState extends State<ManageClinicsPage> {
                 child: ListTile(
                   leading: const Icon(Icons.local_hospital,
                       color: Colors.teal),
-                  title:
-                  Text(clinic['clinic_name'] ?? "Unnamed Clinic"),
+                  title: Text(clinic['clinic_name'] ?? "Unnamed Clinic"),
                   subtitle: Text(clinic['address'] ?? "No address"),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.edit,
-                            color: Colors.blue),
+                        icon: const Icon(Icons.edit, color: Colors.blue),
                         onPressed: () => goToEditClinic(clinic),
                         tooltip: 'Edit Clinic',
                       ),
