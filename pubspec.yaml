@@ -41,7 +41,12 @@ dependencies:
   geocoding: ^3.0.0
   table_calendar: ^3.0.9
   flutter_native_splash: ^2.3.10
-  file_picker: ^6.1.0
+  file_picker: ^8.0.3
+  image_picker: ^1.1.2
+  http: ^1.1.0
+  path_provider: ^2.0.15
+  open_filex: ^4.5.0
+  shimmer: ^3.0.0
 
 dev_dependencies:
   flutter_test:
@@ -79,6 +84,13 @@ flutter_native_splash:
   android: true
   ios: true
   web: false
+
+dependency_overrides:
+  file_picker:
+    git:
+      url: https://github.com/miguelpruivo/flutter_file_picker.git
+      ref: master
+
 
 
   # To add assets to your application, add an assets section, like this:
