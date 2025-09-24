@@ -47,11 +47,55 @@ class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
     }
   }
 
-  Future<void> updateStatus(String id, String status) async {
-    await supabase
-        .from('appointments')
-        .update({'status': status}).eq('appointment_id', id);
-    fetchAppointments();
+  Future<void> updateStatus(String appointmentId, String status) async {
+    try {
+      // 1️⃣ Get appointment details first (including slot_id)
+      final appointmentData = await supabase
+          .from('appointments')
+          .select('slot_id')
+          .eq('appointment_id', appointmentId)
+          .maybeSingle();
+
+      final slotId = appointmentData?['slot_id'];
+
+      // 2️⃣ Update appointment status
+      await supabase
+          .from('appointments')
+          .update({'status': status})
+          .eq('appointment_id', appointmentId);
+
+      // 3️⃣ Update the corresponding slot
+      if (slotId != null) {
+        final slotData = await supabase
+            .from('appointment_slots')
+            .select('booked_count, slot_limit')
+            .eq('slot_id', slotId)
+            .maybeSingle();
+
+        if (slotData != null) {
+          int bookedCount = slotData['booked_count'] ?? 0;
+          int slotLimit = slotData['slot_limit'] ?? 1;
+
+          if (status == 'accepted') {
+            bookedCount = (bookedCount + 1).clamp(0, slotLimit);
+            await supabase.from('appointment_slots').update({
+              'booked_count': bookedCount,
+              'status': 'closed', // block others from booking
+            }).eq('slot_id', slotId);
+          } else if (status == 'rejected') {
+            await supabase.from('appointment_slots').update({
+              'booked_count': 0,
+              'status': 'open', // free slot for others
+            }).eq('slot_id', slotId);
+          }
+        }
+      }
+
+      // 4️⃣ Refresh UI
+      fetchAppointments();
+    } catch (e) {
+      debugPrint("Error updating appointment status: $e");
+    }
   }
 
   @override

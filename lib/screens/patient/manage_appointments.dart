@@ -60,13 +60,45 @@ class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
     }
   }
 
-  /// Delete an appointment
+  /// Delete an appointment and update the slot accordingly
   Future<void> deleteAppointment(String appointmentId) async {
     try {
+      // 1️⃣ Get the appointment's slot_id first
+      final appointmentData = await supabase
+          .from('appointments')
+          .select('slot_id')
+          .eq('appointment_id', appointmentId)
+          .maybeSingle();
+
+      final slotId = appointmentData?['slot_id'];
+
+      // 2️⃣ Delete the appointment
       await supabase
           .from('appointments')
           .delete()
           .eq('appointment_id', appointmentId);
+
+      // 3️⃣ Update the slot if slotId exists
+      if (slotId != null) {
+        // Fetch current booked_count and slot_limit
+        final slotData = await supabase
+            .from('appointment_slots')
+            .select('booked_count, slot_limit')
+            .eq('slot_id', slotId)
+            .maybeSingle();
+
+        if (slotData != null) {
+          int bookedCount = slotData['booked_count'] ?? 0;
+          int slotLimit = slotData['slot_limit'] ?? 1;
+
+          bookedCount = (bookedCount - 1).clamp(0, slotLimit);
+
+          await supabase.from('appointment_slots').update({
+            'booked_count': bookedCount,
+            'status': 'open', // make it visible again
+          }).eq('slot_id', slotId);
+        }
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Appointment deleted successfully!")),

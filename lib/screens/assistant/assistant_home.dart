@@ -1,9 +1,9 @@
-// assistant_dashboard.dart
 import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/assistant/manage_appointments.dart';
+import 'package:medi_slot/screens/assistant/upload_slots_page.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
-import 'assigned_clinics_page.dart'; // Import Assigned Clinics page
+import 'assigned_clinics_page.dart';
 
 class AssistantDashboard extends StatefulWidget {
   const AssistantDashboard({super.key});
@@ -16,6 +16,8 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
   final AuthService authService = AuthService();
   String? userName;
   String? assistantId;
+  String? doctorId; // Doctor ID (nullable)
+  String? assignedDoctorId; // Doctor assigned to assistant
   bool isLoading = true;
 
   @override
@@ -24,17 +26,20 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
     initDashboard();
   }
 
-  /// Initialize user and assistant info
   Future<void> initDashboard() async {
     setState(() => isLoading = true);
 
     try {
       final name = await authService.getCurrentUserName();
-      final id = await authService.getCurrentAssistantId();
+      final aId = await authService.getCurrentAssistantId();
+      final dId = await authService.getCurrentDoctorId();
+      final assignedId = await authService.getAssignedDoctorIdForAssistant();
 
       setState(() {
         userName = name ?? "Assistant";
-        assistantId = id;
+        assistantId = aId;
+        doctorId = dId;
+        assignedDoctorId = assignedId;
         isLoading = false;
       });
     } catch (e) {
@@ -43,7 +48,6 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
     }
   }
 
-  /// Logout function
   Future<void> logout(BuildContext context) async {
     await authService.signOut();
     if (mounted) {
@@ -58,7 +62,6 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Gradient AppBar
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(
@@ -78,91 +81,128 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            tooltip: "Logout",
             onPressed: () => logout(context),
           ),
         ],
       ),
       body: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(20),
         child: isLoading
             ? const Center(child: CircularProgressIndicator())
-            : Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              "Welcome, ${userName ?? 'Assistant'} 👩‍⚕️",
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple,
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            // Manage Appointments
-            DashboardCard(
-              icon: Icons.calendar_month,
-              color: Colors.orange,
-              title: "Manage Appointments",
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ManageAppointmentsPage(),
+            : SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Text(
+                  "Welcome, ${userName ?? 'Assistant'} 👩‍⚕️",
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
+                ),
+              ),
+              const SizedBox(height: 30),
 
-            // Assist Doctors
-            DashboardCard(
-              icon: Icons.local_hospital,
-              color: Colors.green,
-              title: "Assist Doctors",
-              onTap: () {
-                // TODO: Navigate to Assist Doctors screen
-              },
-            ),
-            const SizedBox(height: 20),
-
-            // Manage Patients
-            DashboardCard(
-              icon: Icons.people,
-              color: Colors.blue,
-              title: "Manage Patients",
-              onTap: () {
-                // TODO: Navigate to Manage Patients screen
-              },
-            ),
-            const SizedBox(height: 20),
-
-            // Assigned Clinics
-            if (assistantId != null)
+              // Upload Slots
               DashboardCard(
-                icon: Icons.local_hospital_outlined,
-                color: Colors.purple,
-                title: "Assigned Clinics",
+                icon: Icons.schedule,
+                color: Colors.teal,
+                title: "Upload Slots",
+                onTap: () {
+                  // Determine effective doctor ID
+                  final effectiveDoctorId = doctorId ?? assignedDoctorId;
+
+                  if (effectiveDoctorId != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => UploadSlotsPage(
+                          doctorId: effectiveDoctorId,
+                          assistantId: assistantId,
+                        ),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          "No Doctor assigned. Cannot upload slots.",
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+
+              const SizedBox(height: 20),
+
+              // Manage Appointments
+              DashboardCard(
+                icon: Icons.calendar_month,
+                color: Colors.orange,
+                title: "Manage Appointments",
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => AssignedClinicsPage(
-                        assistantId: assistantId!,
-                      ),
-                    ),
+                        builder: (_) => const ManageAppointmentsPage()),
                   );
                 },
               ),
-          ],
+
+              const SizedBox(height: 20),
+
+              // Assist Doctors
+              DashboardCard(
+                icon: Icons.local_hospital,
+                color: Colors.green,
+                title: "Assist Doctors",
+                onTap: () {
+                  // TODO: Navigate to Assist Doctors screen
+                },
+              ),
+
+              const SizedBox(height: 20),
+
+              // Manage Patients
+              DashboardCard(
+                icon: Icons.people,
+                color: Colors.blue,
+                title: "Manage Patients",
+                onTap: () {
+                  // TODO: Navigate to Manage Patients screen
+                },
+              ),
+
+              const SizedBox(height: 20),
+
+              // Assigned Clinics
+              if (assistantId != null)
+                DashboardCard(
+                  icon: Icons.local_hospital_outlined,
+                  color: Colors.purple,
+                  title: "Assigned Clinics",
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AssignedClinicsPage(
+                          assistantId: assistantId!,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// DashboardCard Widget
 class DashboardCard extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -191,7 +231,7 @@ class DashboardCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 30,
-                backgroundColor: color.withValues(alpha: 0.1),
+                backgroundColor: color.withAlpha(25), // ✅ replaced deprecated withOpacity
                 child: Icon(icon, size: 30, color: color),
               ),
               const SizedBox(width: 20),

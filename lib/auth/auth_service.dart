@@ -60,8 +60,8 @@ class AuthService {
     if (response == null) return null;
     return response['doctor_id'] as String?;
   }
-  String? get currentUserId => _supabase.auth.currentUser?.id;
 
+  // Get current assistant ID
   Future<String?> getCurrentAssistantId() async {
     final user = _supabase.auth.currentUser;
     if (user == null) return null;
@@ -76,4 +76,21 @@ class AuthService {
     return response['assistant_id'] as String?;
   }
 
+  // ✅ Get assigned doctor ID for current assistant
+  Future<String?> getAssignedDoctorIdForAssistant() async {
+    final assistantId = await getCurrentAssistantId();
+    if (assistantId == null) return null;
+
+    final response = await _supabase
+        .from('assistants')
+        .select('assigned_doctor_id')
+        .eq('assistant_id', assistantId)
+        .maybeSingle();
+
+    if (response == null) return null;
+    return response['assigned_doctor_id'] as String?;
+  }
+
+  // Shortcut for current user ID
+  String? get currentUserId => _supabase.auth.currentUser?.id;
 }

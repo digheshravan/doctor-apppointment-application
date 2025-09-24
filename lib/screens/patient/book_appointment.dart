@@ -25,19 +25,10 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
 
   List<dynamic> patients = [];
   List<dynamic> appointments = [];
+  List<dynamic> availableSlots = []; // Slots for selected doctor/date
 
   final TextEditingController reasonController = TextEditingController();
   bool isLoading = true;
-
-  final List<String> timeSlots = [
-    "09:00:00",
-    "10:00:00",
-    "11:00:00",
-    "12:00:00",
-    "14:00:00",
-    "15:00:00",
-    "16:00:00",
-  ];
 
   @override
   void initState() {
@@ -95,7 +86,62 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
-  // Check slot availability
+  // Fetch available slots for selected doctor and date
+  Future<void> fetchAvailableSlots() async {
+    if (selectedDoctor == null || selectedDate == null) {
+      setState(() => availableSlots = []);
+      return;
+    }
+
+    final dateStr = DateFormat('yyyy-MM-dd').format(selectedDate!);
+    final now = DateTime.now();
+
+    try {
+      final response = await supabase
+          .from('appointment_slots')
+          .select('slot_time, slot_limit, booked_count, status')
+          .eq('doctor_id', selectedDoctor!['doctor_id'])
+          .eq('slot_date', dateStr)
+          .eq('status', 'open');
+
+      final slots = (response as List)
+          .where((slot) => slot['booked_count'] < slot['slot_limit'])
+          .map((slot) {
+        // Convert slot_time to DateTime for comparison
+        final slotTimeStr = slot['slot_time'] as String; // HH:mm:ss
+        final slotDateTime = DateTime(
+          selectedDate!.year,
+          selectedDate!.month,
+          selectedDate!.day,
+          int.parse(slotTimeStr.split(':')[0]),
+          int.parse(slotTimeStr.split(':')[1]),
+          int.parse(slotTimeStr.split(':')[2]),
+        );
+        slot['slotDateTime'] = slotDateTime;
+        return slot;
+      })
+      // Only future slots
+          .where((slot) {
+        final slotDateTime = slot['slotDateTime'] as DateTime;
+        return slotDateTime.isAfter(now);
+      })
+          .toList();
+
+      // Sort ascending by slotDateTime
+      slots.sort((a, b) =>
+          (a['slotDateTime'] as DateTime).compareTo(b['slotDateTime'] as DateTime));
+
+      setState(() {
+        availableSlots = slots;
+        selectedTimeSlot = null; // reset selection
+      });
+    } catch (e) {
+      debugPrint("Error fetching slots: $e");
+      setState(() => availableSlots = []);
+    }
+  }
+
+  // Check slot availability (optional, extra safety)
   Future<bool> canBookSlot(String doctorId, DateTime date, String slot) async {
     final appointmentDate = DateFormat('yyyy-MM-dd').format(date);
 
@@ -122,29 +168,42 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       return;
     }
 
-    final slotAvailable = await canBookSlot(
-        selectedDoctor!['doctor_id'], selectedDate!, selectedTimeSlot!);
-
-    if (!slotAvailable) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-            Text("Selected time slot is full. Please choose another slot.")),
-      );
-      return;
-    }
+    final appointmentDate = DateFormat('yyyy-MM-dd').format(selectedDate!);
 
     try {
-      final appointmentDate = DateFormat('yyyy-MM-dd').format(selectedDate!);
+      // 1️⃣ Fetch the slot row to get slot_id
+      final slotResponse = await supabase
+          .from('appointment_slots')
+          .select('slot_id, slot_limit, booked_count')
+          .eq('doctor_id', selectedDoctor!['doctor_id'])
+          .eq('slot_date', appointmentDate)
+          .eq('slot_time', selectedTimeSlot!)
+          .maybeSingle();
 
+      if (slotResponse == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Selected slot not found!")),
+        );
+        return;
+      }
+
+      final slotId = slotResponse['slot_id'];
+
+      // 2️⃣ Insert appointment with slot_id
       await supabase.from('appointments').insert({
         'patient_id': selectedPatientId,
         'doctor_id': selectedDoctor!['doctor_id'],
+        'slot_id': slotId, // ✅ Insert slot_id here
         'appointment_date': appointmentDate,
         'appointment_time': selectedTimeSlot,
         'reason': reasonController.text,
         'status': 'pending',
       });
+
+      // 3️⃣ Optionally, update booked_count in appointment_slots
+      await supabase.from('appointment_slots').update({
+        'booked_count': slotResponse['booked_count'] + 1,
+      }).eq('slot_id', slotId);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Appointment booked successfully!")),
@@ -153,7 +212,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       reasonController.clear();
       fetchAppointments();
 
-      // Navigate back to patient dashboard
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -167,19 +225,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
-  Future<void> pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked != null) {
-      setState(() => selectedDate = picked);
-    }
-  }
-
-  // Open doctor map page and select doctor
+  // Select doctor
   Future<void> selectDoctorOnMap() async {
     final selected = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -187,7 +233,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     );
 
     if (selected != null) {
-      // Map returned keys to consistent naming
       final doctorId = selected['doctorId'] ?? selected['doctor_id'];
       final doctorName = selected['doctorName'] ?? selected['doctor_name'] ?? "Unknown";
       final specialization = selected['specialization'] ?? "General";
@@ -195,15 +240,12 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       final address = selected['address'] ?? "N/A";
 
       setState(() {
-        // Info for display card
         selectedDoctorInfo = {
           'doctorName': doctorName,
           'specialization': specialization,
           'clinicName': clinicName,
           'address': address,
         };
-
-        // Info for booking submission
         selectedDoctor = {
           'doctor_id': doctorId,
           'name': doctorName,
@@ -212,6 +254,9 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
           'address': address,
         };
       });
+
+      // Fetch slots for selected doctor
+      await fetchAvailableSlots();
     }
   }
 
@@ -277,7 +322,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                 ),
               ),
 
-              // Display selected doctor info
+              // Doctor info card
               if (selectedDoctorInfo != null) ...[
                 const SizedBox(height: 12),
                 Card(
@@ -317,67 +362,51 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
               const SizedBox(height: 20),
 
               // Date selection
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Select Date",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              const Text(
+                "Select Date",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              TableCalendar(
+                firstDay: DateTime.utc(2020, 1, 1),
+                lastDay: DateTime.utc(2030, 12, 31),
+                focusedDay: selectedDate ?? DateTime.now(),
+                calendarFormat: CalendarFormat.month,
+                selectedDayPredicate: (day) => isSameDay(selectedDate, day),
+                onDaySelected: (selectedDay, focusedDay) async {
+                  setState(() {
+                    selectedDate = selectedDay;
+                  });
+                  await fetchAvailableSlots();
+                },
+                enabledDayPredicate: (day) {
+                  final now = DateTime.now();
+                  final fiveDaysLater = now.add(const Duration(days: 5));
+                  return day.isAfter(now.subtract(const Duration(days: 1))) &&
+                      day.isBefore(fiveDaysLater.add(const Duration(days: 1)));
+                },
+                calendarStyle: CalendarStyle(
+                  todayDecoration: const BoxDecoration(
+                    color: Colors.teal,
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 10),
-                  // Replace only the TableCalendar widget in your code with this 👇
-
-                  TableCalendar(
-                    firstDay: DateTime.utc(2020, 1, 1), // show full month
-                    lastDay: DateTime.utc(2030, 12, 31),
-                    focusedDay: selectedDate ?? DateTime.now(),
-                    calendarFormat: CalendarFormat.month, // show full month
-                    availableCalendarFormats: const {
-                      CalendarFormat.month: 'Month',
-                    },
-                    selectedDayPredicate: (day) {
-                      return isSameDay(selectedDate, day);
-                    },
-                    onDaySelected: (selectedDay, focusedDay) {
-                      // Allow selecting only if within next 5 days
-                      final now = DateTime.now();
-                      final fiveDaysLater = now.add(const Duration(days: 5));
-                      if (selectedDay.isAfter(now.subtract(const Duration(days: 1))) &&
-                          selectedDay.isBefore(fiveDaysLater.add(const Duration(days: 1)))) {
-                        setState(() {
-                          selectedDate = selectedDay;
-                        });
-                      }
-                    },
-                    enabledDayPredicate: (day) {
-                      // Enable only today + next 5 days
-                      final now = DateTime.now();
-                      final fiveDaysLater = now.add(const Duration(days: 5));
-                      return day.isAfter(now.subtract(const Duration(days: 1))) &&
-                          day.isBefore(fiveDaysLater.add(const Duration(days: 1)));
-                    },
-                    calendarStyle: CalendarStyle(
-                      todayDecoration: BoxDecoration(
-                        color: Colors.teal,
-                        shape: BoxShape.circle,
-                      ),
-                      selectedDecoration: BoxDecoration(
-                        color: Colors.orange,
-                        shape: BoxShape.circle,
-                      ),
-                      disabledTextStyle: TextStyle(color: Colors.grey.shade400), // greyed out
-                    ),
+                  selectedDecoration: const BoxDecoration(
+                    color: Colors.orange,
+                    shape: BoxShape.circle,
                   ),
-                ],
+                  disabledTextStyle: TextStyle(color: Colors.grey.shade400),
+                ),
               ),
               const SizedBox(height: 20),
+
+              // Time slot dropdown
               DropdownButtonFormField<String>(
                 value: selectedTimeSlot,
-                items: timeSlots.map((slot) {
+                items: availableSlots.map<DropdownMenuItem<String>>((slot) {
                   final formatted = DateFormat('hh:mm a')
-                      .format(DateFormat("HH:mm:ss").parse(slot));
+                      .format((slot['slotDateTime'] as DateTime));
                   return DropdownMenuItem<String>(
-                    value: slot,
+                    value: slot['slot_time'],
                     child: Text(formatted),
                   );
                 }).toList(),
@@ -393,7 +422,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
               ),
               const SizedBox(height: 20),
 
-              // Patient Details
+              // Patient selection
               const Text(
                 "Patient Details",
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -434,7 +463,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
               ),
               const SizedBox(height: 30),
 
-              // Book Appointment button
+              // Book button
               SizedBox(
                 width: double.infinity,
                 child: Container(
@@ -445,13 +474,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(8),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 6,
-                        offset: Offset(2, 3),
-                      ),
-                    ],
                   ),
                   child: ElevatedButton(
                     onPressed: bookAppointment,

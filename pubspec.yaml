@@ -41,6 +41,7 @@ dependencies:
   geocoding: ^3.0.0
   table_calendar: ^3.0.9
   flutter_native_splash: ^2.3.10
+  file_picker: ^6.1.0
 
 dev_dependencies:
   flutter_test:
