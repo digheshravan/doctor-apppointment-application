@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:medi_slot/screens/patient/patient.dart';
+import 'package:medi_slot/screens/patient/patient.dart'; // Assuming your theme colors might be here or used indirectly
 import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -12,8 +12,9 @@ import 'package:path_provider/path_provider.dart';
 
 class BookAppointmentPage extends StatefulWidget {
   final Map<String, dynamic>? preselectedDoctor;
+  final Map<String, dynamic>? selectedDoctor;
 
-  const BookAppointmentPage({Key? key, this.preselectedDoctor}) : super(key: key);
+  const BookAppointmentPage({Key? key, this.preselectedDoctor, this.selectedDoctor}) : super(key: key);
 
   @override
   State<BookAppointmentPage> createState() => _BookAppointmentPageState();
@@ -30,6 +31,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   String? selectedTimeRange;
 
   // --- THEME COLORS ---
+  // Using colors consistent with PatientDashboard if needed, or define locally
   final Color primaryThemeColor = const Color(0xFF2193b0);
   final Color secondaryThemeColor = const Color(0xFF6dd5ed);
 
@@ -58,7 +60,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     );
   }
 
-
   // Helper widget for section headers
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
@@ -76,8 +77,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     );
   }
 
-
-
   List<dynamic> patients = [];
   List<dynamic> appointments = [];
   List<dynamic> availableSlots = [];
@@ -90,7 +89,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   String? uploadedFileUrl;
   String? uploadedFilePath;
 
-
   @override
   void initState() {
     super.initState();
@@ -98,8 +96,16 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     if (widget.preselectedDoctor != null) {
       selectedDoctor = widget.preselectedDoctor;
       selectedDoctorInfo = widget.preselectedDoctor;
+    } else if (widget.selectedDoctor != null) { // Handle selectedDoctor passed from patient.dart
+      selectedDoctor = widget.selectedDoctor;
+      selectedDoctorInfo = widget.selectedDoctor;
     }
     fetchPatients();
+    // If a doctor is preselected, fetch slots immediately if a date is also known or default to today
+    if (selectedDoctorInfo != null) {
+      // Assuming selectedDate might be set or you want to fetch for today initially
+      // For now, fetchAvailableSlots will be called when a date is picked
+    }
   }
 
   // Select Doctor on Map
@@ -130,13 +136,17 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
           'clinicName': clinicName,
           'address': address,
         };
+        // Reset date and time slot when doctor changes
+        selectedDate = null;
+        selectedTimeSlot = null;
+        availableSlots = [];
       });
 
-      await fetchAvailableSlots();
+      // No need to call fetchAvailableSlots here, it's called when date is selected
     }
   }
 
-  // Fetch Appointments
+  // Fetch Appointments (relevant for patient history, not directly for booking UI here)
   Future<void> fetchAppointments() async {
     if (selectedPatientId == null) return;
     try {
@@ -149,7 +159,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
 
       setState(() {
         appointments = data;
-        isLoading = false;
+        // isLoading = false; //isLoading controls the whole page, primarily for patient data
       });
     } catch (e) {
       debugPrint("Error fetching appointments: $e");
@@ -165,6 +175,9 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
 
     final dateStr = DateFormat('yyyy-MM-dd').format(selectedDate!);
     final now = DateTime.now();
+
+    // Show loading indicator specifically for slots
+    // setState(() { isLoadingSlots = true; }); // You might want a separate loading state for slots
 
     try {
       final response = await supabase
@@ -191,7 +204,14 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       })
           .where((slot) {
         final slotDateTime = slot['slotDateTime'] as DateTime;
-        return slotDateTime.isAfter(now);
+        // If the selected date is today, filter out past slots.
+        // If selected date is in the future, all open slots are valid.
+        if (selectedDate!.year == now.year &&
+            selectedDate!.month == now.month &&
+            selectedDate!.day == now.day) {
+          return slotDateTime.isAfter(now);
+        }
+        return true;
       })
           .toList();
 
@@ -200,40 +220,51 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
 
       setState(() {
         availableSlots = slots;
-        selectedTimeSlot = null;
+        selectedTimeSlot = null; // Reset time slot when new slots are fetched
+        // isLoadingSlots = false;
       });
     } catch (e) {
       debugPrint("Error fetching slots: $e");
-      setState(() => availableSlots = []);
+      setState(() {
+        availableSlots = [];
+        // isLoadingSlots = false;
+      });
     }
   }
 
   // Fetch Patients
   Future<void> fetchPatients() async {
+    setState(() => isLoading = true);
     try {
       final user = supabase.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) setState(() => isLoading = false);
+        return;
+      }
 
       final data = await supabase
           .from('patients')
           .select('patient_id, name, age, gender')
           .eq('user_id', user.id);
 
-      setState(() {
-        patients = data;
-        if (patients.isNotEmpty) {
-          selectedPatientId = patients.first['patient_id'];
-          fetchAppointments();
-        }
-      });
+      if (mounted) {
+        setState(() {
+          patients = data;
+          if (patients.isNotEmpty) {
+            selectedPatientId = patients.first['patient_id'];
+            fetchAppointments(); // Fetches past appointments for this patient
+          }
+          isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint("Error fetching patients: $e");
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // File picker (handles both upload and update)
+  // File picker
   Future<void> pickFile() async {
-    // If a file is already uploaded, remove it first before picking a new one.
     if (uploadedFilePath != null) {
       await deleteFile(uploadedFilePath!);
     }
@@ -251,7 +282,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         setState(() {
           selectedFile = file;
           uploadedFileUrl = uploadResult['url'];
-          uploadedFilePath = uploadResult['path']; // Store the path
+          uploadedFilePath = uploadResult['path'];
         });
       } else {
         if (mounted) {
@@ -261,7 +292,6 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         }
       }
     } else {
-      // If user cancels picking a new file, clear the old file state.
       setState(() {
         selectedFile = null;
         uploadedFileUrl = null;
@@ -270,7 +300,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
-  // Upload file to Supabase
+  // Upload file
   Future<Map<String, String>?> uploadFile(File file) async {
     final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.path.split('/').last}';
     final filePath = 'medical_reports/$fileName';
@@ -280,12 +310,9 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       await supabase.storage.from('reports').uploadBinary(
         filePath,
         bytes,
-        fileOptions: const FileOptions(contentType: 'application/octet-stream'),
+        fileOptions: const FileOptions(contentType: 'application/octet-stream'), // More generic for mixed types
       );
-
       final publicUrlResponse = supabase.storage.from('reports').getPublicUrl(filePath);
-
-      // Return both the URL and the path
       return {'url': publicUrlResponse, 'path': filePath};
     } catch (e) {
       debugPrint("Error uploading file: $e");
@@ -293,19 +320,16 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
     }
   }
 
-  // Open File to preview
+  // Open File
   Future<void> openReportFile(String fileUrl) async {
     try {
       final response = await http.get(Uri.parse(fileUrl));
-
       if (response.statusCode == 200) {
         final dir = await getTemporaryDirectory();
-        final fileName = fileUrl.split('/').last;
+        final fileName = fileUrl.split('?').first.split('/').last; // Handle potential query params in URL
         final filePath = '${dir.path}/$fileName';
-
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
-
         await OpenFilex.open(file.path);
       } else {
         throw Exception("Failed to download file: ${response.statusCode}");
@@ -314,24 +338,20 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
       debugPrint("Error opening file: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error opening file: $e")),
+          SnackBar(content: Text("Error opening file: Could not load report.")),
         );
       }
     }
   }
 
-  // Delete file from Supabase
+  // Delete file
   Future<void> deleteFile(String filePath) async {
     try {
       await supabase.storage.from('reports').remove([filePath]);
       debugPrint("Successfully deleted file: $filePath");
     } catch (e) {
       debugPrint("Error deleting file: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error removing file: $e")),
-        );
-      }
+      // Optionally show a snackbar, but maybe not necessary if pickFile handles UI update
     }
   }
 
@@ -343,12 +363,17 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         selectedTimeSlot == null ||
         reasonController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill all fields")),
+        const SnackBar(content: Text("Please fill all required fields and select a time slot.")),
       );
       return;
     }
 
     final appointmentDate = DateFormat('yyyy-MM-dd').format(selectedDate!);
+
+    // Add a loading state for the booking process
+    setState(() {
+      // e.g. _isBooking = true; // you'd need to define this boolean
+    });
 
     try {
       final slotResponse = await supabase
@@ -360,11 +385,24 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
           .maybeSingle();
 
       if (slotResponse == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Selected slot not found!")),
-        );
+        if(mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Selected slot is no longer available or not found!")),
+          );
+        }
+        await fetchAvailableSlots(); // Refresh slots
         return;
       }
+      if (slotResponse['booked_count'] >= slotResponse['slot_limit']) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Selected slot has just been filled. Please select another.")),
+          );
+        }
+        await fetchAvailableSlots(); // Refresh slots
+        return;
+      }
+
 
       final slotId = slotResponse['slot_id'];
 
@@ -375,7 +413,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         'appointment_date': appointmentDate,
         'appointment_time': selectedTimeSlot,
         'reason': reasonController.text,
-        'status': 'pending',
+        'status': 'pending', // Default status
         if (uploadedFileUrl != null) 'report_url': uploadedFileUrl,
       });
 
@@ -383,28 +421,41 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
         'booked_count': slotResponse['booked_count'] + 1,
       }).eq('slot_id', slotId);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Appointment booked successfully!")),
-      );
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Appointment booked successfully!")),
+        );
+        reasonController.clear();
+        setState(() {
+          selectedFile = null;
+          uploadedFileUrl = null;
+          uploadedFilePath = null;
+          // Optionally reset date and time or navigate away
+          selectedDate = null;
+          selectedTimeSlot = null;
+          availableSlots = [];
+        });
+        // fetchAppointments(); // Already called in fetchPatients and after booking below
 
-      reasonController.clear();
-      setState(() {
-        selectedFile = null;
-        uploadedFileUrl = null;
-        uploadedFilePath = null;
-      });
-      fetchAppointments();
+        // Navigate back to patient dashboard or a confirmation screen
+        // Consider which page is most appropriate
+        Navigator.pop(context); // Pops the current booking page
+        // Or if it's part of the PatientDashboard's IndexedStack, you might not pop
+        // but rather switch the index back in PatientDashboard
+      }
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const PatientDashboard(),
-        ),
-      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error booking appointment: $e")),
-      );
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error booking appointment: ${e.toString()}")),
+        );
+      }
+    } finally {
+      if(mounted) {
+        setState(() {
+          // _isBooking = false;
+        });
+      }
     }
   }
 
@@ -412,34 +463,36 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
   Widget build(BuildContext context) {
     final selectedPatient = patients.firstWhere(
           (p) => p['patient_id'] == selectedPatientId,
-      orElse: () => <String, dynamic>{},
+      orElse: () => <String, dynamic>{}, // Provide a default empty map
     );
 
-    final patientName = selectedPatient['name'] ?? 'Unknown';
+    // Safe access to patient details
+    final patientName = selectedPatient['name'] ?? 'N/A';
     final patientAge = selectedPatient['age']?.toString() ?? 'N/A';
     final patientGender = selectedPatient['gender'] ?? 'N/A';
 
     return Scaffold(
-      appBar: AppBar(
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [primaryThemeColor, secondaryThemeColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-        title: const Text(
-          "Book Appointment",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.black, // Changed for better contrast
-          ),
-        ),
-        centerTitle: true,
-        elevation: 6,
-      ),
+      // appBar: AppBar( // REMOVED APP BAR
+      //   flexibleSpace: Container(
+      //     decoration: BoxDecoration(
+      //       gradient: LinearGradient(
+      //         colors: [primaryThemeColor, secondaryThemeColor],
+      //         begin: Alignment.topLeft,
+      //         end: Alignment.bottomRight,
+      //       ),
+      //     ),
+      //   ),
+      //   title: const Text(
+      //     "Book Appointment",
+      //     style: TextStyle(
+      //       fontWeight: FontWeight.bold,
+      //       color: Colors.black,
+      //     ),
+      //   ),
+      //   centerTitle: true,
+      //   elevation: 6,
+      // ),
+      backgroundColor: Colors.white, // Or your app's default background
       body: isLoading
           ? Center(
         child: CircularProgressIndicator(
@@ -452,6 +505,19 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ADDED "Book Appointment" Text here
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0, bottom: 24.0),
+                child: Text(
+                  "Book Appointment",
+                  textAlign: TextAlign.center, // <<< THIS MAKES THE TEXT CENTERED
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: primaryThemeColor,
+                  ),
+                ),
+              ),
 
               // --- DOCTOR SELECTION ---
               _buildSectionHeader("Doctor", Icons.medical_services_outlined),
@@ -469,7 +535,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          "Select a Doctor from the Map",
+                          "Select a Doctor from Map",
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
@@ -479,7 +545,7 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                         Icon(Icons.map_outlined, color: primaryThemeColor),
                       ],
                     )
-                        : Row(
+                        : Row( // Display selected doctor info
                       children: [
                         CircleAvatar(
                           radius: 28,
@@ -495,117 +561,55 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Name and Specialization
-                              Wrap(
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                spacing: 8.0,
-                                children: [
-                                  Text(
-                                    "Dr. ${selectedDoctorInfo!['doctorName']}",
-                                    style: const TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    "(${selectedDoctorInfo!['specialization']})",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                selectedDoctorInfo!['doctorName'] ?? 'N/A',
+                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                               ),
-                              const SizedBox(height: 8),
-
-                              // --- NEW: Clinic Name ---
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.business_outlined,
-                                    color: Colors.grey.shade600,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      selectedDoctorInfo!['clinicName'] ?? 'N/A',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey.shade700,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                selectedDoctorInfo!['specialization'] ?? 'N/A',
+                                style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
                               ),
-                              const SizedBox(height: 4),
-
-                              // Address
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.location_on_outlined,
-                                    color: Colors.grey.shade600,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      selectedDoctorInfo!['address'] ?? 'No address provided',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey.shade700,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                selectedDoctorInfo!['clinicName'] ?? 'N/A',
+                                style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
                               ),
                             ],
                           ),
                         ),
+                        Icon(Icons.arrow_forward_ios_rounded, color: Colors.grey.shade400, size: 18),
                       ],
                     ),
                   ),
                 ),
               ),
 
-              // --- DATE & TIME SELECTION ---
-              _buildSectionHeader("Date & Time", Icons.calendar_today_outlined),
+              // --- DATE SELECTION ---
+              _buildSectionHeader("Date", Icons.calendar_today_outlined),
               Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    TableCalendar(
-                      firstDay: DateTime.now(),
-                      lastDay:
-                      DateTime.now().add(const Duration(days: 30)),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4.0), // Reduced padding for calendar
+                    child: TableCalendar(
+                      firstDay: DateTime.now(), // Disable past dates
+                      lastDay: DateTime.now().add(const Duration(days: 90)), // Allow booking up to 90 days in advance
                       focusedDay: selectedDate ?? DateTime.now(),
-                      calendarFormat: CalendarFormat.month,
-                      selectedDayPredicate: (day) =>
-                          isSameDay(selectedDate, day),
-                      onDaySelected: (selectedDay, focusedDay) async {
+                      selectedDayPredicate: (day) => isSameDay(selectedDate, day),
+                      onDaySelected: (selectedDay, focusedDay) {
                         setState(() {
                           selectedDate = selectedDay;
-                          selectedTimeRange = null; // Reset the time range
-                          selectedTimeSlot = null;  // Also reset the specific slot
+                          // focusedDay = focusedDay; // No need to set focusedDay here, it's handled by TableCalendar
+                          selectedTimeSlot = null; // Reset time slot when date changes
+                          availableSlots = [];   // Clear previous slots
                         });
-                        await fetchAvailableSlots();
+                        if (selectedDoctor != null) {
+                          fetchAvailableSlots();
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Please select a doctor first to see available slots.")),
+                          );
+                        }
                       },
-                      headerStyle: HeaderStyle(
-                        titleTextStyle: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                        formatButtonVisible: false,
-                        titleCentered: true,
-                        leftChevronIcon:
-                        Icon(Icons.chevron_left, color: primaryThemeColor),
-                        rightChevronIcon: Icon(Icons.chevron_right,
-                            color: primaryThemeColor),
-                      ),
                       calendarStyle: CalendarStyle(
                         selectedDecoration: BoxDecoration(
                           color: primaryThemeColor,
@@ -615,346 +619,237 @@ class _BookAppointmentPageState extends State<BookAppointmentPage> {
                           color: secondaryThemeColor.withOpacity(0.5),
                           shape: BoxShape.circle,
                         ),
-                        weekendTextStyle:
-                        const TextStyle(color: Colors.redAccent),
-                        outsideDaysVisible: false,
+                        markerDecoration: BoxDecoration(color: primaryThemeColor, shape: BoxShape.circle),
+                      ),
+                      headerStyle: HeaderStyle(
+                        formatButtonVisible: false,
+                        titleCentered: true,
+                        titleTextStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                        leftChevronIcon: Icon(Icons.chevron_left, color: primaryThemeColor),
+                        rightChevronIcon: Icon(Icons.chevron_right, color: primaryThemeColor),
                       ),
                     ),
-                    if (selectedDate != null) ...[
-                      const Divider(height: 1),
-                      Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // --- TIME RANGE DROPDOWN ---
-                            Builder(builder: (context) {
-                              // Determine which hourly ranges have available slots.
-                              final Set<int> availableHours = availableSlots
-                                  .map<int>((slot) =>
-                              (slot['slotDateTime'] as DateTime).hour)
-                                  .toSet();
+                  )),
 
-                              if (availableHours.isEmpty) {
-                                return const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                                  child: Text("No available slots for this date."),
-                                );
-                              }
-
-                              // Create the range strings like "10:00 - 11:00"
-                              final hourlyRanges = availableHours.map((hour) {
-                                final start = hour.toString().padLeft(2, '0');
-                                final end = (hour + 1).toString().padLeft(2, '0');
-                                return "$start:00 - $end:00";
-                              }).toList()
-                                ..sort(); // Sort the ranges chronologically
-
-                              return DropdownButtonFormField<String>(
-                                value: selectedTimeRange,
-                                hint: const Text("Select an hourly range"),
-                                decoration: const InputDecoration(
-                                  labelText: "Time Range",
-                                  border: OutlineInputBorder(),
-                                  contentPadding:
-                                  EdgeInsets.symmetric(vertical: 15, horizontal: 12),
-                                ),
-                                items: hourlyRanges.map((range) {
-                                  return DropdownMenuItem<String>(
-                                    value: range,
-                                    child: Text(range),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  setState(() {
-                                    selectedTimeRange = value;
-                                    selectedTimeSlot = null; // Reset specific slot selection
-                                  });
-                                },
-                              );
-                            }),
-
-                            // --- SPECIFIC TIME SLOT BOXES (Filtered by Hourly Range) ---
-                            if (selectedTimeRange != null) ...[
-                              const SizedBox(height: 16),
-                              const Text(
-                                "Select Specific Slot",
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                              const SizedBox(height: 8),
-                              Builder(builder: (context) {
-                                // Get the start hour from the selected range string
-                                final startHour =
-                                int.parse(selectedTimeRange!.split(':')[0]);
-
-                                // Filter slots to show only those within the selected hour
-                                final filteredSlots = availableSlots.where((slot) {
-                                  final hour =
-                                      (slot['slotDateTime'] as DateTime).hour;
-                                  return hour == startHour;
-                                }).toList();
-
-                                if (filteredSlots.isEmpty) {
-                                  return const Text(
-                                      "No slots available in this range.");
-                                }
-
-                                return Wrap(
-                                  spacing: 8.0,
-                                  runSpacing: 8.0,
-                                  children: filteredSlots.map<Widget>((slot) {
-                                    final formattedTime = DateFormat('hh:mm a')
-                                        .format((slot['slotDateTime'] as DateTime));
-                                    final isSelected =
-                                        selectedTimeSlot == slot['slot_time'];
-                                    return ChoiceChip(
-                                      label: Text(formattedTime),
-                                      selected: isSelected,
-                                      // This line removes the checkmark
-                                      showCheckmark: false,
-                                      onSelected: (selected) {
-                                        setState(() {
-                                          selectedTimeSlot =
-                                          selected ? slot['slot_time'] : null;
-                                        });
-                                      },
-                                      selectedColor: primaryThemeColor,
-                                      labelStyle: TextStyle(
-                                          color:
-                                          isSelected ? Colors.white : Colors.black),
-                                      backgroundColor: Colors.grey.shade200,
-                                      // Add a border to the selected chip for better visual distinction
-                                      shape: isSelected
-                                          ? StadiumBorder(
-                                          side: BorderSide(color: primaryThemeColor))
-                                          : StadiumBorder(
-                                          side: BorderSide(color: Colors.grey.shade300)),
-                                    );
-                                  }).toList(),
-                                );
-                              }),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ]
-                  ],
-                ),
-              ),
-
-              // --- PATIENT & REASON ---
-              _buildSectionHeader("Details", Icons.person_outline),
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        value: selectedPatientId,
-                        items: patients
-                            .map<DropdownMenuItem<String>>((patient) {
-                          return DropdownMenuItem<String>(
-                            value: patient['patient_id'],
-                            child: Text(patient['name']),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
+              // --- TIME SLOT SELECTION ---
+              if (selectedDate != null && selectedDoctor != null) ...[
+                _buildSectionHeader("Available Time Slots", Icons.access_time_outlined),
+                if (availableSlots.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    child: Center(
+                        child: Text(
+                          "No available slots for this date or doctor.\nPlease try another date or doctor.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+                        )
+                    ),
+                  )
+                else
+                  Wrap(
+                    spacing: 8.0,
+                    runSpacing: 8.0,
+                    children: availableSlots.map<Widget>((slot) {
+                      final time = slot['slot_time'] as String;
+                      // Format time for display (e.g., 09:00:00 to 9:00 AM)
+                      final displayTime = DateFormat.jm().format(DateFormat("HH:mm:ss").parse(time));
+                      return ChoiceChip(
+                        label: Text(displayTime),
+                        selected: selectedTimeSlot == time,
+                        onSelected: (selected) {
                           setState(() {
-                            selectedPatientId = value;
+                            selectedTimeSlot = selected ? time : null;
                           });
                         },
-                        decoration: const InputDecoration(
-                          labelText: "Select Patient",
-                          border: OutlineInputBorder(),
+                        selectedColor: primaryThemeColor,
+                        labelStyle: TextStyle(
+                          color: selectedTimeSlot == time ? Colors.white : Colors.black,
                         ),
-                      ),
-                      if (selectedPatientId != null) ...[
-                        const SizedBox(height: 16),
-                        _buildDetailRow(
-                            Icons.person_outline, "Name", patientName),
-                        const Divider(height: 24),
-                        _buildDetailRow(
-                            Icons.cake_outlined, "Age", patientAge),
-                        const Divider(height: 24),
-                        _buildDetailRow(
-                            Icons.wc_outlined, "Gender", patientGender),
-                      ],
-                      const SizedBox(height: 20),
-                      TextField(
-                        controller: reasonController,
-                        decoration: const InputDecoration(
-                          labelText: "Reason for Appointment",
-                          border: OutlineInputBorder(),
-                        ),
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 20),
+                        backgroundColor: Colors.grey.shade200,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      );
+                    }).toList(),
+                  ),
+              ],
 
-                      // --- FILE UPLOAD ---
-                      selectedFile == null
-                          ? SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: pickFile,
-                          icon:
-                          const Icon(Icons.upload_file_outlined),
-                          label: const Text(
-                              "Upload Medical Report (Optional)"),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: primaryThemeColor,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 12),
-                            side: BorderSide(color: primaryThemeColor),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+              // --- PATIENT SELECTION ---
+              if (patients.isNotEmpty) ...[
+                _buildSectionHeader("Patient Details", Icons.person_outline),
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        DropdownButtonFormField<String>(
+                          decoration: InputDecoration(
+                            labelText: "Select Patient",
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            prefixIcon: Icon(Icons.person_search_outlined, color: primaryThemeColor),
                           ),
+                          value: selectedPatientId,
+                          items: patients.map<DropdownMenuItem<String>>((patient) {
+                            return DropdownMenuItem<String>(
+                              value: patient['patient_id'],
+                              child: Text(patient['name'] ?? 'Unknown Patient'),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              selectedPatientId = value;
+                              fetchAppointments(); // Update appointments for selected patient
+                            });
+                          },
                         ),
-                      )
-                          : Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: Colors.grey.shade300),
+                        if(selectedPatientId != null && selectedPatient.isNotEmpty)...[
+                          const SizedBox(height: 16),
+                          _buildDetailRow(Icons.person, "Name", patientName),
+                          const SizedBox(height: 8),
+                          _buildDetailRow(Icons.cake, "Age", patientAge),
+                          const SizedBox(height: 8),
+                          _buildDetailRow(Icons.wc, "Gender", patientGender),
+                        ]
+                      ],
+                    ),
+                  ),
+                ),
+              ] else if (patients.isEmpty && !isLoading) ...[
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.person_off_outlined, size: 50, color: Colors.grey.shade400),
+                        const SizedBox(height: 10),
+                        const Text("No patient profiles found.", style: TextStyle(fontSize: 16, color: Colors.grey)),
+                        const SizedBox(height: 10),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.add_circle_outline),
+                          label: const Text("Add Patient Profile"),
+                          onPressed: () {
+                            // Navigate to add patient profile screen
+                            // Assuming you have a route for this:
+                            // Navigator.push(context, MaterialPageRoute(builder: (_) => AddPatientProfileScreen()));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Navigation to add profile not implemented yet.")),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryThemeColor,
+                            foregroundColor: Colors.white,
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                )
+              ],
+
+              // --- REASON FOR APPOINTMENT ---
+              _buildSectionHeader("Reason for Appointment", Icons.notes_outlined),
+              TextFormField(
+                controller: reasonController,
+                decoration: InputDecoration(
+                  hintText: "Briefly describe your reason for visit...",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                maxLines: 3,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a reason for the appointment.';
+                  }
+                  return null;
+                },
+              ),
+
+              // --- FILE UPLOAD ---
+              _buildSectionHeader("Upload Medical Report (Optional)", Icons.attach_file_outlined),
+              Card(
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ElevatedButton.icon(
+                        icon: Icon(selectedFile == null ? Icons.upload_file_outlined : Icons.change_circle_outlined),
+                        label: Text(selectedFile == null ? "Select File" : "Change File"),
+                        onPressed: pickFile,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: secondaryThemeColor,
+                          foregroundColor: Colors.black87,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          textStyle: const TextStyle(fontSize: 16),
                         ),
-                        child: Column(
-                          crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      ),
+                      if (selectedFile != null) ...[
+                        const SizedBox(height: 12),
+                        Row(
                           children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.attach_file,
-                                    color: Colors.black54,
-                                    size: 20),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    selectedFile!.path
-                                        .split('/')
-                                        .last,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
+                            Icon(Icons.insert_drive_file_outlined, color: primaryThemeColor, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                selectedFile!.path.split('/').last,
+                                style: const TextStyle(fontSize: 15),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            const SizedBox(height: 8),
-                            const Divider(),
-                            const SizedBox(height: 4),
-                            // --- FIXED: Using Row with even more compact buttons to prevent overflow ---
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // Preview Button
-                                TextButton.icon(
-                                  onPressed: () async {
-                                    if (uploadedFileUrl != null) {
-                                      await openReportFile(
-                                          uploadedFileUrl!);
-                                    }
-                                  },
-                                  icon: const Icon(
-                                      Icons.visibility_outlined,
-                                      size: 20),
-                                  label: const Text("Preview"),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor:
-                                    primaryThemeColor,
-                                    // Further reduce padding to make the button more compact
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                ),
-                                // Update Button
-                                TextButton.icon(
-                                  onPressed: pickFile,
-                                  icon: const Icon(Icons.edit_outlined,
-                                      size: 20),
-                                  label: const Text("Update"),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor:
-                                    primaryThemeColor,
-                                    // Further reduce padding to make the button more compact
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                ),
-                                // Remove Button
-                                TextButton.icon(
-                                  onPressed: () async {
-                                    if (uploadedFilePath != null) {
-                                      await deleteFile(
-                                          uploadedFilePath!);
-                                      setState(() {
-                                        selectedFile = null;
-                                        uploadedFileUrl = null;
-                                        uploadedFilePath = null;
-                                      });
-                                    }
-                                  },
-                                  icon: const Icon(
-                                      Icons.delete_outline,
-                                      size: 20),
-                                  label: const Text("Remove"),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor:
-                                    Colors.red.shade600,
-                                    // Further reduce padding to make the button more compact
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                ),
-                              ],
+                            IconButton(
+                              icon: Icon(Icons.preview_outlined, color: primaryThemeColor),
+                              onPressed: () {
+                                if (uploadedFileUrl != null) {
+                                  openReportFile(uploadedFileUrl!);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text("File not uploaded yet or URL is missing.")),
+                                  );
+                                }
+                              },
+                              tooltip: "Preview File",
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              onPressed: () async {
+                                if (uploadedFilePath != null) {
+                                  await deleteFile(uploadedFilePath!);
+                                }
+                                setState(() {
+                                  selectedFile = null;
+                                  uploadedFileUrl = null;
+                                  uploadedFilePath = null;
+                                });
+                              },
+                              tooltip: "Remove File",
                             ),
                           ],
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
               ),
 
-              const SizedBox(height: 30),
 
               // --- BOOK APPOINTMENT BUTTON ---
-              SizedBox(
-                width: double.infinity,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [primaryThemeColor, secondaryThemeColor],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+              Padding(
+                padding: const EdgeInsets.only(top: 32.0, bottom: 16.0),
+                child: Center(
                   child: ElevatedButton(
                     onPressed: bookAppointment,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      backgroundColor: primaryThemeColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      elevation: 3,
                     ),
-                    child: const Text(
-                      "Book Appointment",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
+                    child: const Text("Book Appointment", style: TextStyle(color: Colors.white)),
                   ),
                 ),
               ),
