@@ -45,12 +45,18 @@ class _PatientDashboardState extends State<PatientDashboard> {
     // Initialize _pages with a placeholder or loading state for the home page initially
     _pages = [
       _buildLoadingHomePage(), // Or a simple Center(child: CircularProgressIndicator())
-      BookAppointmentPage(selectedDoctor: selectedDoctor),
+      // MODIFIED: Use 'preselectedDoctor' to match BookAppointmentPage constructor
+      BookAppointmentPage(preselectedDoctor: selectedDoctor),
       const ViewAppointmentsPage(),
       const ManageAppointmentsPage(),
       const ProfilesScreen(),
     ];
     fetchUserNameAndInitializePages();
+    // fetchDoctors(); // _loadDoctors calls fetchDoctors, so this might be redundant unless intended.
+    // If _loadDoctors already sets the initial list, you might not need this second call here.
+    // However, if fetchDoctors in initState has a different purpose (e.g., non-paginated initial small set)
+    // and _loadDoctors is for pagination, then it's fine. Review based on your logic.
+    // For now, I'll keep it as it was in your snippet.
     fetchDoctors();
   }
 
@@ -206,9 +212,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
             'clinicName': clinicName,
             'address': address,
           };
-          // Rebuild the BookAppointmentPage with the new selectedDoctor
-          _pages[1] = BookAppointmentPage(selectedDoctor: selectedDoctor);
-          _page = 1;
+          // MODIFIED: Rebuild the BookAppointmentPage with the new selectedDoctor using the correct parameter
+          _pages[1] = BookAppointmentPage(preselectedDoctor: selectedDoctor);
+          _page = 1; // Switch to the BookAppointmentPage tab
         });
       }
     }
