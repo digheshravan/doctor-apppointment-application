@@ -238,19 +238,24 @@ class _DoctorMapPageState extends State<DoctorMapPage> {
                   ),
                   onPressed: () {
                     if (doctorNode != null) {
-                      final selectedDoctor = doctorNode is List ? doctorNode.first : doctorNode;
+                      final selectedDoctorData = doctorNode is List ? doctorNode.first : doctorNode;
+                      final doctorName = (selectedDoctorData['profiles']?['name'] ?? 'Unknown').toString();
+                      final specialization = selectedDoctorData['specialization'] ?? 'N/A';
 
-                      final doctorName = (selectedDoctor['profiles']?['name'] ?? 'Unknown').toString();
-                      final specialization = selectedDoctor['specialization'] ?? 'N/A';
+                      final Map<String, dynamic> returnData = {
+                        'doctorId': selectedDoctorData['doctor_id'],      // Key: 'doctorId'
+                        'doctorName': doctorName,                         // Key: 'doctorName'
+                        'specialization': specialization,                 // Key: 'specialization'
+                        'clinicName': clinic['clinic_name'],              // Key: 'clinicName'
+                        'address': clinic['address'],                     // Key: 'address'
+                        // 'clinic_id': clinic['clinic_id'], // Optional: if BookAppointmentPage needs it
+                      };
 
-                      Navigator.pop(context); // close bottom sheet
-                      Navigator.pop(context, {
-                        'doctorId': selectedDoctor['doctor_id'],
-                        'doctorName': doctorName,
-                        'clinicName': clinic['clinic_name'],
-                        'address': clinic['address'],
-                        'specialization': specialization,
-                      });
+                      debugPrint("DoctorMapPage: Popping with data: $returnData"); // Add this to see what's sent
+
+                      Navigator.pop(context); // Close bottom sheet
+                      Navigator.pop(context, returnData); // Return this map
+
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text("No doctor available for this clinic")),

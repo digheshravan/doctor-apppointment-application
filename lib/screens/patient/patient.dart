@@ -46,7 +46,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
     _pages = [
       _buildLoadingHomePage(), // Or a simple Center(child: CircularProgressIndicator())
       // MODIFIED: Use 'preselectedDoctor' to match BookAppointmentPage constructor
-      BookAppointmentPage(preselectedDoctor: selectedDoctor),
+      BookAppointmentPage(key: const ValueKey('initial_bap'), preselectedDoctor: selectedDoctor), // selectedDoctor is likely null here
       const ViewAppointmentsPage(),
       const ManageAppointmentsPage(),
       const ProfilesScreen(),
@@ -125,7 +125,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
     try {
       final response = await supabase
           .from('doctors')
-          .select('doctor_id, specialization, profiles(name) ,clinic_locations(clinic_id, clinic_name, address, latitude, longitude)')
+          .select('doctor_id, specialization, profiles(name)')
           .range(from, to); // fetch doctors in batches
 
       final List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(response);
@@ -190,35 +190,46 @@ class _PatientDashboardState extends State<PatientDashboard> {
       MaterialPageRoute(builder: (_) => const DoctorMapPage()),
     );
 
-    if (selected != null) {
-      final doctorId = selected['doctorId'] ?? selected['doctor_id'];
-      final doctorName = selected['doctorName'] ?? selected['doctor_name'] ?? "Unknown";
-      final specialization = selected['specialization'] ?? "General";
-      final clinicName = selected['clinicName'] ?? selected['clinic_name'] ?? "N/A";
-      final address = selected['address'] ?? "N/A";
+    debugPrint("PatientDashboard: Data received from DoctorMapPage: $selected");
 
-      if (mounted) {
-        setState(() {
-          selectedDoctorInfo = {
-            'doctorName': doctorName,
-            'specialization': specialization,
-            'clinicName': clinicName,
-            'address': address,
-          };
-          selectedDoctor = {
-            'doctor_id': doctorId,
-            'name': doctorName,
-            'specialization': specialization,
-            'clinicName': clinicName,
-            'address': address,
-          };
-          // MODIFIED: Rebuild the BookAppointmentPage with the new selectedDoctor using the correct parameter
-          _pages[1] = BookAppointmentPage(preselectedDoctor: selectedDoctor);
-          _page = 1; // Switch to the BookAppointmentPage tab
-        });
-      }
+    if (selected != null && mounted) { // Check if 'selected' is not null
+      // *** EXTRACTING DATA USING KEYS FROM DoctorMapPage ***
+      final String? doctorId = selected['doctorId'] as String?;
+      final String? doctorName = selected['doctorName'] as String?; // Using 'doctorName' from DoctorMapPage
+      final String? specialization = selected['specialization'] as String?;
+      // final String? clinicName = selected['clinicName'] as String?;
+      // final String? address = selected['address'] as String?;
+      // final String? clinicId = selected['clinic_id'] as String?;
+
+      // *** PREPARING DATA FOR BookAppointmentPage ***
+      // Decide what key BookAppointmentPage will use for the doctor's name.
+      // Let's assume BookAppointmentPage expects 'name'.
+      final Map<String, dynamic> doctorDataForBookingPage = {
+        'doctor_id': selected['doctorId'],
+        'name': selected['doctorName'], // Assuming this is how it comes from map
+        'specialization': selected['specialization'],
+        // 'clinicName': selected['clinicName'],
+        // 'address': selected['address'],
+      };
+      debugPrint("PatientDashboard: Data prepared for BookAppointmentPage: $doctorDataForBookingPage");
+
+      setState(() {
+        _pages[1] = BookAppointmentPage(
+          // IMPORTANT: Create a new key. Using the doctorId ensures it's unique per doctor,
+          // or use DateTime.now().millisecondsSinceEpoch if doctorId could be null or not unique enough.
+            key: ValueKey(doctorDataForBookingPage['doctor_id'] ?? DateTime.now().toIso8601String()),
+            preselectedDoctor: doctorDataForBookingPage
+        );
+
+        debugPrint("PatientDashboard: Updated _pages[1] to new BookAppointmentPage instance (Hash: ${_pages[1].hashCode}, Key: ${_pages[1].key})");
+
+        _page = 1; // Switch to the BookAppointmentPage tab
+      });
+    } else {
+      debugPrint("PatientDashboard: No data received from DoctorMapPage.");
     }
   }
+
 
   Future<void> signOut() async {
     try {
@@ -523,11 +534,11 @@ class DoctorTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final clinic = doc['clinic_locations'] as Map<String, dynamic>?;
+    // final clinic = doc['clinic_locations'] as Map<String, dynamic>?;
 
     final doctorName = doc['profiles']?['name'] ?? "Unknown";
     final specialization = doc['specialization'] ?? "General";
-    final clinicName = clinic?['clinic_name'] ?? "N/A";
+    // final clinicName = clinic?['clinic_name'] ?? "N/A";
 
     return Container(
       width: 160,
@@ -572,19 +583,19 @@ class DoctorTile extends StatelessWidget {
                 Text(specialization,
                     style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 const SizedBox(height: 5),
-                Row(
-                  children: [
-                    Icon(Icons.location_on,
-                        color: Colors.blue.shade300, size: 16),
-                    Expanded(
-                      child: Text(clinicName,
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.grey),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                )
+                // Row(
+                //   children: [
+                //     Icon(Icons.location_on,
+                //         color: Colors.blue.shade300, size: 16),
+                //     Expanded(
+                //       child: Text(clinicName,
+                //           style: const TextStyle(
+                //               fontSize: 11, color: Colors.grey),
+                //           maxLines: 1,
+                //           overflow: TextOverflow.ellipsis),
+                //     ),
+                //   ],
+                // )
               ],
             ),
           )
@@ -593,4 +604,3 @@ class DoctorTile extends StatelessWidget {
     );
   }
 }
-
