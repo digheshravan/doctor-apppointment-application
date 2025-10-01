@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:shimmer/shimmer.dart';
 
 class ViewAppointmentsPage extends StatefulWidget {
   const ViewAppointmentsPage({Key? key}) : super(key: key);
@@ -18,6 +17,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
   final supabase = Supabase.instance.client;
   List<dynamic> upcomingAppointments = [];
   List<dynamic> pastAppointments = [];
+  List<dynamic> cancelledAppointments = [];
   bool isLoading = true;
 
   // --- THEME COLORS ---
@@ -34,26 +34,38 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
     if (!mounted) return;
     setState(() => isLoading = true);
 
-    // Simulate a network delay for a better shimmer effect demonstration
-    await Future.delayed(const Duration(milliseconds: 1500));
-
     try {
       final user = supabase.auth.currentUser;
       if (user == null) throw "No user logged in";
 
+      // 1. Get all patient_ids for this user
+      final patientData = await supabase
+          .from('patients')
+          .select('patient_id')
+          .eq('user_id', user.id);
+
+      if (patientData.isEmpty) {
+        throw "No patients found";
+      }
+
+      final patientIds = patientData.map((p) => p['patient_id']).toList();
+
+      // 2. Fetch all appointments for this user's patients
+      final patientIdsStr = patientIds.join(',');
       final data = await supabase
           .from('appointments')
           .select('''
-            appointment_id,
-            appointment_date,
-            appointment_time,
-            reason,
-            status,
-            report_url,
-            patients ( name, relation ),
-            doctors ( specialization, profiles ( name ) )
-          ''')
-          .eq('patients.user_id', user.id)
+      appointment_id,
+      appointment_date,
+      appointment_time,
+      reason,
+      status,
+      report_url,
+      slot_id,
+      patients(name, age, gender, relation),
+      doctors(specialization, profiles(name))
+    ''')
+          .filter('patient_id', 'in', '($patientIdsStr)')
           .order('appointment_date', ascending: false)
           .order('appointment_time', ascending: false);
 
@@ -62,11 +74,15 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
 
       final upcoming = <dynamic>[];
       final past = <dynamic>[];
+      final cancelled = <dynamic>[];
 
       for (final appt in data) {
         final apptDate = DateTime.parse(appt['appointment_date']);
-        if (apptDate.isBefore(today) ||
-            (apptDate.isAtSameMomentAs(today) && appt['status'] == 'completed')) {
+        final status = (appt['status'] ?? '').toLowerCase();
+
+        if (status == 'cancelled') {
+          cancelled.add(appt);
+        } else if (apptDate.isBefore(today) || status == 'completed') {
           past.add(appt);
         } else {
           upcoming.add(appt);
@@ -77,6 +93,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
         setState(() {
           upcomingAppointments = upcoming;
           pastAppointments = past;
+          cancelledAppointments = cancelled;
           isLoading = false;
         });
       }
@@ -94,7 +111,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           flexibleSpace: Container(
@@ -122,6 +139,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
             tabs: [
               Tab(text: "Upcoming"),
               Tab(text: "Past"),
+              Tab(text: "Cancelled"),
             ],
           ),
         ),
@@ -129,6 +147,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
           children: [
             _buildAppointmentList(upcomingAppointments, isUpcoming: true),
             _buildAppointmentList(pastAppointments, isUpcoming: false),
+            _buildAppointmentList(cancelledAppointments, isUpcoming: false),
           ],
         ),
       ),
@@ -141,23 +160,39 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
     }
 
     if (appointments.isEmpty) {
-      return _EmptyState(
-        title: "No ${isUpcoming ? 'Upcoming' : 'Past'} Appointments",
-        message: isUpcoming
-            ? "You have no scheduled appointments at this time."
-            : "You have no previous appointment history.",
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              isUpcoming
+                  ? "No Upcoming Appointments"
+                  : "No ${isUpcoming == false ? 'Past/Cancelled' : ''} Appointments",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isUpcoming
+                  ? "You have no scheduled appointments at this time."
+                  : "You have no previous appointment history.",
+              style: const TextStyle(fontSize: 14, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       );
     }
-
     return RefreshIndicator(
-      onRefresh: fetchAppointments,
+      onRefresh: fetchAppointments, // reuse the same fetch method
       color: primaryThemeColor,
       child: ListView.builder(
         padding: const EdgeInsets.all(12),
         itemCount: appointments.length,
         itemBuilder: (context, index) {
+          final appt = appointments[index];
           return _AppointmentCard(
-            appointment: appointments[index],
+            appointment: appt,
+            onAppointmentCancelled: fetchAppointments, // refresh after cancel
             themeColor: primaryThemeColor,
           );
         },
@@ -169,7 +204,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: 5,
-      itemBuilder: (context, index) => const _ShimmerAppointmentCard(),
+      itemBuilder: (context, index) => const Center(child: CircularProgressIndicator()),
     );
   }
 }
@@ -180,21 +215,32 @@ class _AppointmentCard extends StatelessWidget {
   final Map<String, dynamic> appointment;
   final Color themeColor;
 
+  // 👇 add this callback
+  final VoidCallback? onAppointmentCancelled;
+
   const _AppointmentCard({
     required this.appointment,
     required this.themeColor,
+    this.onAppointmentCancelled, // 👈 now available
   });
 
-  String formatDate(String date) => DateFormat('E, dd MMM yyyy').format(DateTime.parse(date));
-  String formatTime(String time) => DateFormat('hh:mm a').format(DateFormat("HH:mm:ss").parse(time));
+  String formatDate(String date) =>
+      DateFormat('E, dd MMM yyyy').format(DateTime.parse(date));
+
+  String formatTime(String time) =>
+      DateFormat('hh:mm a').format(DateFormat("HH:mm:ss").parse(time));
 
   Color statusColor(String status) {
     switch (status.toLowerCase()) {
-      case "pending": return Colors.orange.shade700;
-      case "approved": return Colors.green.shade700;
+      case "pending":
+        return Colors.orange.shade700;
+      case "approved":
+        return Colors.green.shade700;
       case "rejected":
-      case "cancelled": return Colors.red.shade700;
-      default: return Colors.grey.shade700;
+      case "cancelled":
+        return Colors.red.shade700;
+      default:
+        return Colors.grey.shade700;
     }
   }
 
@@ -228,6 +274,65 @@ class _AppointmentCard extends StatelessWidget {
     }
   }
 
+  Future<void> _cancelAppointment(
+      BuildContext context, Map<String, dynamic> appointment) async {
+    final supabase = Supabase.instance.client;
+    try {
+      final apptId = appointment['appointment_id'];
+      final slotId = appointment['slot_id'];
+
+      // 1. Update appointment status
+      await supabase
+          .from('appointments')
+          .update({'status': 'cancelled'})
+          .eq('appointment_id', apptId);
+
+      // 2. Update the slot if it exists
+      if (slotId != null) {
+        final slot = await supabase
+            .from('appointment_slots')
+            .select('slot_limit, booked_count')
+            .eq('slot_id', slotId)
+            .maybeSingle();
+
+        if (slot != null) {
+          int bookedCount = slot['booked_count'] ?? 0;
+          int slotLimit = slot['slot_limit'] ?? 1;
+
+          bookedCount = (bookedCount - 1).clamp(0, slotLimit); // ensure >= 0
+
+          String slotStatus = bookedCount < slotLimit ? 'open' : 'full';
+
+          await supabase
+              .from('appointment_slots')
+              .update({
+            'booked_count': bookedCount,
+            'status': slotStatus,
+          })
+              .eq('slot_id', slotId);
+        }
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Appointment cancelled successfully")),
+        );
+      }
+
+      // 3. Refresh parent list
+      if (onAppointmentCancelled != null) {
+        onAppointmentCancelled!();
+      }
+    } catch (e) {
+      debugPrint("Error cancelling appointment: $e");
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error cancelling appointment: $e")),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final patient = appointment['patients'] ?? {};
@@ -254,7 +359,8 @@ class _AppointmentCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 26,
                   backgroundColor: themeColor.withOpacity(0.15),
-                  child: Icon(Icons.medical_services_outlined, color: themeColor, size: 28),
+                  child: Icon(Icons.medical_services_outlined,
+                      color: themeColor, size: 28),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -262,13 +368,19 @@ class _AppointmentCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        doctorProfile['name'] != null ? "Dr. ${doctorProfile['name']}" : 'Unknown Doctor',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
+                        doctorProfile['name'] != null
+                            ? "Dr. ${doctorProfile['name']}"
+                            : 'Unknown Doctor',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.black87),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         doctor['specialization'] ?? 'No specialization',
-                        style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
+                        style: TextStyle(
+                            color: Colors.grey.shade700, fontSize: 14),
                       ),
                     ],
                   ),
@@ -277,7 +389,10 @@ class _AppointmentCard extends StatelessWidget {
                 Chip(
                   label: Text(status.toUpperCase()),
                   backgroundColor: statusColor(status).withOpacity(0.1),
-                  labelStyle: TextStyle(color: statusColor(status), fontWeight: FontWeight.bold, fontSize: 12),
+                  labelStyle: TextStyle(
+                      color: statusColor(status),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12),
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   visualDensity: VisualDensity.compact,
                   side: BorderSide.none,
@@ -285,17 +400,45 @@ class _AppointmentCard extends StatelessWidget {
               ],
             ),
           ),
+
           // --- Details Section ---
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: Column(
               children: [
-                _buildInfoRow(Icons.person_outline, "Patient", patient['name'] ?? 'N/A'),
-                _buildInfoRow(Icons.calendar_today_outlined, "Date", formatDate(appointment['appointment_date'])),
-                _buildInfoRow(Icons.access_time_outlined, "Time", formatTime(appointment['appointment_time'])),
-                _buildInfoRow(Icons.notes_outlined, "Reason", appointment['reason'] ?? 'No reason provided'),
+                _buildInfoRow(Icons.person_outline, "Patient",
+                    patient['name'] ?? 'N/A'),
+                _buildInfoRow(Icons.calendar_today_outlined, "Date",
+                    formatDate(appointment['appointment_date'])),
+                _buildInfoRow(Icons.access_time_outlined, "Time",
+                    formatTime(appointment['appointment_time'])),
+                _buildInfoRow(Icons.notes_outlined, "Reason",
+                    appointment['reason'] ?? 'No reason provided'),
                 const Divider(height: 24),
                 _buildReportRow(context, reportUrl),
+
+                // --- Cancel Button ---
+                if (status.toLowerCase() != 'cancelled')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () =>
+                            _cancelAppointment(context, appointment),
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: const Text("Cancel Appointment"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade600,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -314,12 +457,16 @@ class _AppointmentCard extends StatelessWidget {
           const SizedBox(width: 16),
           SizedBox(
             width: 70,
-            child: Text("$label:", style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+            child: Text("$label:",
+                style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500)),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87),
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, color: Colors.black87),
             ),
           ),
         ],
@@ -335,7 +482,10 @@ class _AppointmentCard extends StatelessWidget {
         const SizedBox(width: 16),
         SizedBox(
           width: 70,
-          child: Text("Report:", style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+          child: Text("Report:",
+              style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: reportUrl != null
@@ -344,13 +494,16 @@ class _AppointmentCard extends StatelessWidget {
             child: TextButton(
               onPressed: () => _openFile(context, reportUrl),
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 6),
                 backgroundColor: themeColor.withOpacity(0.1),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
               child: Text(
                 "View Attachment",
-                style: TextStyle(color: themeColor, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: themeColor, fontWeight: FontWeight.bold),
               ),
             ),
           )
@@ -364,117 +517,6 @@ class _AppointmentCard extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  final String title;
-  final String message;
-  const _EmptyState({required this.title, required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.calendar_month_outlined,
-              size: 80,
-              color: Colors.grey.shade300,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ShimmerAppointmentCard extends StatelessWidget {
-  const _ShimmerAppointmentCard();
-
-  Widget _buildShimmerBox({required double height, required double width, double radius = 8}) {
-    return Container(
-      height: height,
-      width: width,
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(radius),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey.shade300,
-      highlightColor: Colors.grey.shade100,
-      child: Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: 5,
-        shadowColor: Colors.black.withOpacity(0.1),
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.white,
-              child: Row(
-                children: [
-                  _buildShimmerBox(height: 52, width: 52, radius: 26),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildShimmerBox(height: 20, width: 150),
-                        const SizedBox(height: 8),
-                        _buildShimmerBox(height: 14, width: 100),
-                      ],
-                    ),
-                  ),
-                  _buildShimmerBox(height: 30, width: 80),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildShimmerBox(height: 16, width: double.infinity),
-                  const SizedBox(height: 12),
-                  _buildShimmerBox(height: 16, width: double.infinity),
-                  const SizedBox(height: 12),
-                  _buildShimmerBox(height: 16, width: double.infinity),
-                  const SizedBox(height: 12),
-                  _buildShimmerBox(height: 16, width: double.infinity),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

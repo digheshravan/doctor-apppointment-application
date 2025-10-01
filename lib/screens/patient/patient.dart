@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:medi_slot/auth/auth_service.dart';
 import 'package:medi_slot/screens/patient/book_appointment.dart';
+import 'package:medi_slot/screens/patient/doctor_list.dart';
 import 'package:medi_slot/screens/patient/view_appointments.dart';
 import 'package:medi_slot/screens/patient/manage_appointments.dart';
 import 'package:medi_slot/screens/patient/patient_profiles.dart';
@@ -48,7 +49,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
       // MODIFIED: Use 'preselectedDoctor' to match BookAppointmentPage constructor
       BookAppointmentPage(key: const ValueKey('initial_bap'), preselectedDoctor: selectedDoctor), // selectedDoctor is likely null here
       const ViewAppointmentsPage(),
-      const ManageAppointmentsPage(),
+      DoctorListPage(),
       const ProfilesScreen(),
     ];
     fetchUserNameAndInitializePages();
@@ -277,7 +278,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             Icon(Icons.home, size: 30, color: Colors.black54),
             Icon(Icons.add, size: 30, color: Colors.black54),
             Icon(Icons.calendar_today, size: 30, color: Colors.black54),
-            Icon(Icons.manage_accounts, size: 30, color: Colors.black54),
+            Icon(Icons.medical_information, size: 30, color: Colors.black54),
             Icon(Icons.person_outline, size: 30, color: Colors.black54),
           ],
           onTap: (index) {
