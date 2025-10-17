@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:shimmer/shimmer.dart';
 
 class ViewAppointmentsPage extends StatefulWidget {
   const ViewAppointmentsPage({Key? key}) : super(key: key);
@@ -114,6 +115,8 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
+          backgroundColor: Colors.transparent, // remove default color
+          elevation: 0,
           flexibleSpace: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -123,12 +126,18 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
               ),
             ),
           ),
-          title: const Text(
-            "My Appointments",
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          title: const Padding(
+            padding: EdgeInsets.only(top: 8.0),
+            child: Text(
+              "My Appointments",
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
           ),
           centerTitle: true,
-          elevation: 4,
           bottom: const TabBar(
             indicatorColor: Colors.white,
             indicatorWeight: 3,
@@ -204,7 +213,87 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: 5,
-      itemBuilder: (context, index) => const Center(child: CircularProgressIndicator()),
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: Colors.grey.shade300,
+          highlightColor: Colors.grey.shade100,
+          child: Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  // --- Header Section ---
+                  Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(26),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(height: 14, width: 120, color: Colors.white, margin: const EdgeInsets.only(bottom: 6)),
+                            Container(height: 12, width: 100, color: Colors.white),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(width: 60, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12))),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // --- Info Rows ---
+                  Column(
+                    children: List.generate(4, (i) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            Container(width: 20, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                            const SizedBox(width: 16),
+                            Container(width: 70, height: 12, color: Colors.white),
+                            const SizedBox(width: 16),
+                            Expanded(child: Container(height: 12, color: Colors.white)),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // --- Report / Button Row ---
+                  Row(
+                    children: [
+                      Container(width: 20, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                      const SizedBox(width: 16),
+                      Container(width: 70, height: 12, color: Colors.white),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Container(
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

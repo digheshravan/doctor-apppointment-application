@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:medi_slot/auth/auth_service.dart';
 import 'package:medi_slot/screens/patient/book_appointment.dart';
+import 'package:medi_slot/screens/patient/doctor_details.dart';
 import 'package:medi_slot/screens/patient/doctor_list.dart';
 import 'package:medi_slot/screens/patient/view_appointments.dart';
-import 'package:medi_slot/screens/patient/manage_appointments.dart';
 import 'package:medi_slot/screens/patient/patient_profiles.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -31,6 +31,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
   final ScrollController _scrollController = ScrollController();
   int currentEnd = 19;
   bool isLoadingMore = false;
+
+  Key _refreshKey = UniqueKey();
+
+  void refreshPage() {
+    setState(() {
+      _refreshKey = UniqueKey(); // 🔄 this forces the whole widget to rebuild
+    });
+  }
 
   @override
   void initState() {
@@ -124,10 +132,12 @@ class _PatientDashboardState extends State<PatientDashboard> {
   // Fetch Doctor from DB
   Future<List<Map<String, dynamic>>> fetchDoctors({int from = 0, int to = 19}) async {
     try {
-      final response = await supabase
+      final response = await Supabase.instance.client
           .from('doctors')
           .select('doctor_id, specialization, profiles(name)')
+          .eq('status', 'approved')
           .range(from, to); // fetch doctors in batches
+
 
       final List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(response);
       if (mounted) {
@@ -254,14 +264,33 @@ class _PatientDashboardState extends State<PatientDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _refreshKey,
       backgroundColor: const Color(0xFFF0F5FF),
       body: SafeArea(
         child: isLoading && userName == null
         // Show global loading only if username isn't fetched yet for the initial setup
             ? const Center(child: CircularProgressIndicator())
-            : IndexedStack(
-          index: _page,
-          children: _pages,
+            : RefreshIndicator(
+          onRefresh: () async {
+            // Refresh Logic
+            setState(() {
+              isLoading = true;
+            });
+            await fetchDoctors();
+            setState(() {
+              isLoading = false;
+            });
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height,
+              child: IndexedStack(
+                index: _page,
+                children: _pages,
+              ),
+            ),
+          ),
         ),
       ),
       bottomNavigationBar: Container(
@@ -283,7 +312,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ],
           onTap: (index) {
             setState(() {
-              _page = index;
+              if (index < _pages.length) {
+                _page = index;
+              }
             });
           },
         ),
@@ -390,12 +421,19 @@ class _PatientDashboardState extends State<PatientDashboard> {
             color: Colors.black87,
           ),
         ),
-        Text(
-          "See All",
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.blue.shade700,
-            fontWeight: FontWeight.w600,
+        InkWell(
+          onTap: (){
+            setState(() {
+              _page = 3;
+            });
+          },
+          child: Text(
+            "See All",
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.blue.shade700,
+              fontWeight: FontWeight.w600
+            ),
           ),
         ),
       ],
@@ -407,11 +445,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
     if (isDoctorsLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-
     if (doctors.isEmpty) {
       return const Center(child: Text("No doctors available"));
     }
-
     return SizedBox(
       height: 220,
       child: ListView.builder(
@@ -419,7 +455,17 @@ class _PatientDashboardState extends State<PatientDashboard> {
         itemCount: doctors.length,
         itemBuilder: (context, index) {
           final doctor = doctors[index];
-          return DoctorTile(doc: doctor); // ✅ Reuse DoctorTile here
+          return InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DoctorDetailsPage(doctor: doctor),
+                ),
+              );
+            },
+            child: DoctorTile(doc: doctor), // your existing tile
+          );
         },
       ),
     );
@@ -535,11 +581,9 @@ class DoctorTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // final clinic = doc['clinic_locations'] as Map<String, dynamic>?;
 
     final doctorName = doc['profiles']?['name'] ?? "Unknown";
     final specialization = doc['specialization'] ?? "General";
-    // final clinicName = clinic?['clinic_name'] ?? "N/A";
 
     return Container(
       width: 160,
@@ -584,19 +628,6 @@ class DoctorTile extends StatelessWidget {
                 Text(specialization,
                     style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 const SizedBox(height: 5),
-                // Row(
-                //   children: [
-                //     Icon(Icons.location_on,
-                //         color: Colors.blue.shade300, size: 16),
-                //     Expanded(
-                //       child: Text(clinicName,
-                //           style: const TextStyle(
-                //               fontSize: 11, color: Colors.grey),
-                //           maxLines: 1,
-                //           overflow: TextOverflow.ellipsis),
-                //     ),
-                //   ],
-                // )
               ],
             ),
           )
