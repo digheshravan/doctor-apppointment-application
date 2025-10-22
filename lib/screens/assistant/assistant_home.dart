@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:medi_slot/screens/assistant/manage_appointments.dart';
 import 'package:medi_slot/screens/assistant/upload_slots_page.dart';
 import 'package:medi_slot/screens/login_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../auth/auth_service.dart';
 import 'assigned_clinics_page.dart';
 
@@ -14,6 +15,7 @@ class AssistantDashboard extends StatefulWidget {
 
 class _AssistantDashboardState extends State<AssistantDashboard> {
   final AuthService authService = AuthService();
+  final supabase = Supabase.instance.client;
   String? userName;
   String? assistantId;
   String? doctorId; // Doctor ID (nullable)
@@ -23,8 +25,67 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
   @override
   void initState() {
     super.initState();
+    _checkSessionValidity();
     initDashboard();
+    loadDoctorData();
   }
+
+  Future<void> _checkSessionValidity() async {
+    final isValid = await authService.isUserLoggedIn();
+    if (!isValid) {
+      // Session expired → redirect to login
+      if (mounted) {
+        await authService.signOut();
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+        );
+      }
+    }
+  }
+
+  Future<void> loadDoctorData() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    // Try fetching as doctor
+    final doctorResponse = await Supabase.instance.client
+        .from('doctors')
+        .select('doctor_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    if (doctorResponse != null) {
+      setState(() {
+        doctorId = doctorResponse['doctor_id'];
+      });
+    } else {
+      // If not a doctor, check if assistant
+      final assignedId = await fetchAssignedDoctorId(user.id);
+      if (assignedId != null) {
+        setState(() {
+          assignedDoctorId = assignedId;
+        });
+      }
+    }
+  }
+
+  Future<String?> fetchAssignedDoctorId(String userId) async {
+    final response = await Supabase.instance.client
+        .from('assistants')
+        .select('assigned_doctor_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (response == null) {
+      print('No assistant record found for userId: $userId');
+      return null;
+    }
+
+    return response['assigned_doctor_id'] as String?;
+  }
+
 
   Future<void> initDashboard() async {
     setState(() => isLoading = true);
@@ -111,7 +172,6 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
                 color: Colors.teal,
                 title: "Upload Slots",
                 onTap: () {
-                  // Determine effective doctor ID
                   final effectiveDoctorId = doctorId ?? assignedDoctorId;
 
                   if (effectiveDoctorId != null) {
@@ -127,9 +187,7 @@ class _AssistantDashboardState extends State<AssistantDashboard> {
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          "No Doctor assigned. Cannot upload slots.",
-                        ),
+                        content: Text("No Doctor assigned. Cannot upload slots."),
                       ),
                     );
                   }

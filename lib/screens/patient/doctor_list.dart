@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:medi_slot/auth/auth_service.dart';
 import 'package:medi_slot/screens/patient/doctor_details.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 
 const TextStyle _kDoctorNameStyle =
@@ -31,11 +31,7 @@ class _DoctorListPageState extends State<DoctorListPage> {
   Future<void> fetchDoctors() async {
     setState(() => isLoading = true);
     try {
-      final response = await Supabase.instance.client
-          .from('doctors')
-          .select(
-          'doctor_id, specialization, years_of_experience, status, profiles (id, name, email)')
-          .eq('status', 'approved'); // only approved doctors
+      final response = await AuthService().getApprovedDoctors();
 
       setState(() {
         doctors = List<Map<String, dynamic>>.from(response);

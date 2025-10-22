@@ -43,6 +43,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
   @override
   void initState() {
     super.initState();
+    _checkSessionValidity();
     _loadDoctors();
 
     _scrollController.addListener(() {
@@ -67,6 +68,21 @@ class _PatientDashboardState extends State<PatientDashboard> {
     // and _loadDoctors is for pagination, then it's fine. Review based on your logic.
     // For now, I'll keep it as it was in your snippet.
     fetchDoctors();
+  }
+
+  Future<void> _checkSessionValidity() async {
+    final isValid = await authService.isUserLoggedIn();
+    if (!isValid) {
+      // Session expired → redirect to login
+      if (mounted) {
+        await authService.signOut();
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+        );
+      }
+    }
   }
 
   Future<void> _loadDoctors() async {
@@ -132,12 +148,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
   // Fetch Doctor from DB
   Future<List<Map<String, dynamic>>> fetchDoctors({int from = 0, int to = 19}) async {
     try {
-      final response = await Supabase.instance.client
-          .from('doctors')
-          .select('doctor_id, specialization, profiles(name)')
-          .eq('status', 'approved')
-          .range(from, to); // fetch doctors in batches
-
+      final response = await AuthService().getApprovedDoctors();
 
       final List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(response);
       if (mounted) {

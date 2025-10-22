@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:medi_slot/screens/login_screen.dart';
+import 'package:medi_slot/auth/auth_service.dart';
+import 'package:flutter/material.dart';
+
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({Key? key}) : super(key: key);
@@ -10,6 +13,7 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
+  final AuthService authService = AuthService();
   final supabase = Supabase.instance.client;
   List<dynamic> pendingDoctors = [];
   bool isLoading = true;
@@ -17,7 +21,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   void initState() {
     super.initState();
+    _checkSessionValidity();
     fetchPendingDoctors();
+  }
+
+  Future<void> _checkSessionValidity() async {
+    final isValid = await authService.isUserLoggedIn();
+    if (!isValid) {
+      // Session expired → redirect to login
+      if (mounted) {
+        await authService.signOut();
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+        );
+      }
+    }
   }
 
   Future<void> fetchPendingDoctors() async {
