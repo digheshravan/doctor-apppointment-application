@@ -292,10 +292,15 @@ class AuthService {
 
     final response = await _supabase
         .from('appointments')
-        .select('status, visit_status, appointment_time, patients(name)')
+        .select('''
+        status, 
+        visit_status, 
+        appointment_time, 
+        patients!inner(name, age, gender, patient_id)
+      ''')
         .eq('doctor_id', doctorId)
         .eq('appointment_date', today)
-        .eq('visit_status', 'active'); // Only patients who arrived
+        .eq('visit_status', 'active');
 
     if (response == null || response is! List) return [];
 

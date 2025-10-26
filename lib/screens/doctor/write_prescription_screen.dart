@@ -35,7 +35,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
   final TextEditingController _instructionsController = TextEditingController();
   final TextEditingController _additionalNotesController = TextEditingController();
   final TextEditingController _recommendedTestsController = TextEditingController();
-  final TextEditingController _followUpDateController = TextEditingController(text: "dd-mm-yyyy");
+  final TextEditingController _followUpDateController = TextEditingController();
 
   String? _selectedFrequency;
 
@@ -57,6 +57,11 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
     _patientNameController.text = widget.patient['name'] ?? '';
     _ageController.text = widget.patient['age']?.toString() ?? '';
     _selectedGender = widget.patient['gender'] ?? '';
+
+    // Make sure appointment_id is included if available
+    if (widget.patient['appointment_id'] != null) {
+      _selectedPatient?['appointment_id'] = widget.patient['appointment_id'];
+    }
   }
 
   void _goToWritePrescription(Map<String, dynamic> patient) {
@@ -111,19 +116,24 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       // Fetch all appointments for this doctor today
       final appointments = await supabase
           .from('appointments')
-          .select('appointment_id, patient_id, appointment_date, patients(name, age, gender)')
+          .select('''
+          appointment_id, 
+          appointment_date, 
+          patients!inner(patient_id, name, age, gender)
+        ''')
           .eq('doctor_id', doctorId)
           .eq('appointment_date', today)
           .eq('visit_status', 'active');
 
       setState(() {
-        _todayAppointments = appointments;
+        _todayAppointments = List<Map<String, dynamic>>.from(appointments);
         _isLoading = false;
       });
     } catch (e) {
       setState(() => _isLoading = false);
+      print('Full error: $e'); // Add this to see complete error
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error fetching today’s appointments: $e')),
+        SnackBar(content: Text('Error fetching today\'s appointments: $e')),
       );
     }
   }
@@ -134,6 +144,14 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
     if (_patientNameController.text.isEmpty || _diagnosisController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill in all required fields')),
+      );
+      return;
+    }
+
+    // Add validation for patient selection
+    if (_selectedPatient == null || _selectedPatient?['patient_id'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a patient first')),
       );
       return;
     }
@@ -151,38 +169,72 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
 
       final doctorId = doctorData['doctor_id'];
 
+      // Debug print
+      print('🔍 Selected Patient: $_selectedPatient');
+      print('🔍 Patient ID: ${_selectedPatient?['patient_id']}');
+      print('🔍 Appointment ID: ${_selectedPatient?['appointment_id']}');
+
+      // 🔹 Parse dates properly
+      DateTime prescriptionDate = DateTime.now();
+      if (_dateController.text.isNotEmpty) {
+        try {
+          prescriptionDate = DateFormat('dd-MM-yyyy').parse(_dateController.text);
+        } catch (e) {
+          print('Date parse error: $e');
+        }
+      }
+
+      DateTime? followUpDate;
+      if (_followUpDateController.text.isNotEmpty) {
+        try {
+          followUpDate = DateFormat('dd-MM-yyyy').parse(_followUpDateController.text);
+        } catch (e) {
+          print('Follow-up date parse error: $e');
+        }
+      }
+
       // 🔹 Insert into prescriptions table
       final prescriptionResponse = await supabase.from('prescriptions').insert({
         'doctor_id': doctorId,
-        'patient_id': _selectedPatient?['patient_id'],
+        'patient_id': _selectedPatient!['patient_id'],
         'diagnosis': _diagnosisController.text,
         'symptoms': _symptomsController.text,
-        'notes': _additionalNotesController.text,
+        'additional_notes': _additionalNotesController.text,
         'recommended_tests': _recommendedTestsController.text,
-        'follow_up_date': _followUpDateController.text.isNotEmpty
-            ? DateFormat('dd-MM-yyyy').parse(_followUpDateController.text)
-            : null,
-        'prescription_date': _dateController.text.isNotEmpty
-            ? DateFormat('dd-MM-yyyy').parse(_dateController.text)
-            : DateTime.now(),
+        'follow_up_date': followUpDate?.toIso8601String().split('T').first,
+        'date': prescriptionDate.toIso8601String().split('T').first,
       }).select().single();
+
+      print('✅ Prescription saved: $prescriptionResponse');
 
       final prescriptionId = prescriptionResponse['prescription_id'];
 
       // 🔹 Insert all medicines
-      for (var med in _addedMedicines) {
-        await supabase.from('prescription_medicines').insert({
-          'prescription_id': prescriptionId,
-          'name': med['name'],
-          'dosage': med['dosage'],
-          'frequency': med['frequency'],
-          'duration': med['duration'],
-          'instructions': med['instructions'],
-        });
+      if (_addedMedicines.isNotEmpty) {
+        for (var med in _addedMedicines) {
+          await supabase.from('prescription_medicines').insert({
+            'prescription_id': prescriptionId,
+            'name': med['name'],
+            'dosage': med['dosage'],
+            'frequency': med['frequency'],
+            'duration': med['duration'],
+            'instructions': med['instructions'],
+          });
+        }
+      }
+
+      // 🔹 Update visit_status to 'completed' in appointments table
+      if (_selectedPatient?['appointment_id'] != null) {
+        await supabase
+            .from('appointments')
+            .update({'visit_status': 'completed'})
+            .eq('appointment_id', _selectedPatient!['appointment_id']);
+
+        print('✅ Appointment visit_status updated to completed');
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Prescription saved successfully!')),
+        const SnackBar(content: Text('✅ Prescription saved and visit completed!')),
       );
 
       // Clear form
@@ -190,9 +242,20 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       _symptomsController.clear();
       _additionalNotesController.clear();
       _recommendedTestsController.clear();
+      _followUpDateController.clear();
       _addedMedicines.clear();
-      setState(() {});
+      setState(() {
+        _selectedPatient = null;
+        _patientNameController.clear();
+        _ageController.clear();
+        _selectedGender = null;
+      });
+
+      // Refresh today's appointments to reflect the change
+      await _fetchTodayAppointments();
+
     } catch (e) {
+      print('❌ Full error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Failed to save prescription: $e')),
       );
@@ -270,13 +333,6 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                       ],
                     ),
                   ),
-                  // Assuming the image doesn't show a floating action button,
-                  // but rather a fixed icon. If it's a floating action button,
-                  // it would be in the Scaffold's floatingActionButton property.
-                  // For now, mirroring the header + button pattern.
-                  // If no button is desired here, remove this Spacer and Icon.
-                  // Spacer(),
-                  // Icon(Icons.arrow_drop_up, size: 24, color: Colors.grey.shade600), // Scroll indicator
                 ],
               ),
               const SizedBox(height: 24),
@@ -298,7 +354,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                             (a) => a['patients']['name'] == value,
                         orElse: () => {},
                       );
-                      if (selected != null) {
+                      if (selected.isNotEmpty) {
+                        print('🔍 Selected appointment: $selected');
                         setState(() {
                           _patientNameController.text = selected['patients']['name'] ?? '';
                           _ageController.text = selected['patients']['age']?.toString() ?? '';
@@ -307,8 +364,11 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                             "name": selected['patients']['name'],
                             "age": selected['patients']['age'],
                             "gender": selected['patients']['gender'],
-                            "patient_id": selected['patient_id'],
+                            "patient_id": selected['patients']['patient_id'],
+                            "appointment_id": selected['appointment_id'], // Add this!
                           };
+                          print('🔍 Patient ID: ${_selectedPatient?['patient_id']}');
+                          print('🔍 Appointment ID: ${_selectedPatient?['appointment_id']}');
                         });
                       }
                     },
@@ -692,39 +752,24 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
   }
 
   // Common dropdown field style
-  Widget _buildDropdownField(String hint, {required List<String> items, Function(String?)? onChanged, String? value}) {
+  Widget _buildDropdownField(
+      String hint, {
+        required List<String> items,
+        Function(String?)? onChanged,
+        String? value,
+      }) {
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       value: value,
       hint: Text(hint, style: TextStyle(color: Colors.grey.shade500)),
-      decoration: InputDecoration(
-        filled: true,
-        fillColor: Colors.grey.shade50,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
-        ),
-        // 👈 SOLUTION: Reduce horizontal padding
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      ),
-      isDense: true, // 👈 ADD THIS: This helps reduce the dropdown's intrinsic size
-      items: items.map<DropdownMenuItem<String>>((String item) {
-        return DropdownMenuItem<String>(
-          value: item,
-          child: Text(item),
-        );
-      }).toList(),
       onChanged: onChanged,
-    );
-  }
-
-  // Date field with calendar icon
-  Widget _buildDateField(BuildContext context, TextEditingController controller, {String hint = "dd-mm-yyyy", VoidCallback? onTap}) {
-    return TextField(
-      controller: controller,
-      readOnly: true, // Make it read-only so the calendar picker is the only input
+      items: items
+          .map((String item) => DropdownMenuItem<String>(
+        value: item,
+        child: Text(item),
+      ))
+          .toList(),
       decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(color: Colors.grey.shade500),
         filled: true,
         fillColor: Colors.grey.shade50,
         border: OutlineInputBorder(
@@ -732,9 +777,32 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           borderSide: BorderSide.none,
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        suffixIcon: Icon(Icons.calendar_today_outlined, color: Colors.grey.shade600),
       ),
+    );
+  }
+
+  // Date field with calendar icon
+  Widget _buildDateField(
+      BuildContext context,
+      TextEditingController controller, {
+        required String hint,
+        required VoidCallback onTap,
+      }) {
+    return TextField(
+      controller: controller,
+      readOnly: true,
       onTap: onTap,
+      decoration: InputDecoration(
+        hintText: hint,
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+        suffixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
     );
   }
 }
@@ -747,7 +815,10 @@ class _AddedMedicineTile extends StatelessWidget {
   final Map<String, String> medicine;
   final VoidCallback onDelete;
 
-  const _AddedMedicineTile({required this.medicine, required this.onDelete});
+  const _AddedMedicineTile({
+    required this.medicine,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -775,13 +846,14 @@ class _AddedMedicineTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  "${medicine['dosage']} - ${medicine['frequency']} (${medicine['duration']})",
+                  "${medicine['dosage'] ?? ''} - ${medicine['frequency'] ?? ''} (${medicine['duration'] ?? ''})",
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.blue.shade700,
                   ),
                 ),
-                if (medicine['instructions'] != null && medicine['instructions']!.isNotEmpty)
+                if (medicine['instructions'] != null &&
+                    medicine['instructions']!.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
                     child: Text(
