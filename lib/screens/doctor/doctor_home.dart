@@ -1,33 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:medi_slot/screens/doctor/appointments_screen.dart';
+import 'package:medi_slot/screens/doctor/patients_screen.dart';
+import 'package:medi_slot/screens/doctor/prescriptions_screen.dart';
+import 'package:medi_slot/screens/doctor/profile_screen.dart';
+import 'package:medi_slot/screens/doctor/write_prescription_screen.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-
-// -----------------------------------------------------------------------------
-// Placeholder Screen for Tabs
-// -----------------------------------------------------------------------------
-class PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const PlaceholderScreen({super.key, required this.title});
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Text(
-      "$title Screen (Design Pending)",
-      style: const TextStyle(fontSize: 18, color: Colors.grey),
-    ),
-  );
-}
-
 // -----------------------------------------------------------------------------
 // Doctor Dashboard
 // -----------------------------------------------------------------------------
 class DoctorDashboard extends StatefulWidget {
-  const DoctorDashboard({super.key});
+  final String doctorId;
+  const DoctorDashboard({Key? key, required this.doctorId}) : super(key: key);
 
   @override
   State<DoctorDashboard> createState() => _DoctorDashboardState();
@@ -46,16 +34,25 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
   int totalPatients = 0;
   int pendingSlots = 0;
   int pendingApprovalsCount = 0;
-
   List<Map<String, dynamic>> upcomingAppointments = [];
+  Map<String, dynamic>? _selectedPatient;
 
-
-  late final List<Widget> _pages;
+  List<Widget> _pages = [];
 
   @override
   void initState() {
     super.initState();
     _checkSessionValidity();
+    _initializeDashboard();
+  }
+
+  Future<void> _initializeDashboard() async {
+    await fetchUserData();
+    await _loadDashboardData();
+    _buildPages();
+  }
+
+  void _buildPages() {
     _pages = [
       DoctorHomePage(
         userName: userName ?? "Doctor",
@@ -66,66 +63,57 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         pendingApprovalsCount: pendingApprovalsCount,
       ),
       const AppointmentsScreen(),
-      const PlaceholderScreen(title: "Patients"),
-      const PlaceholderScreen(title: "Prescriptions"),
-      const PlaceholderScreen(title: "Reports"),
-      const PlaceholderScreen(title: "Profile"),
+      PatientsScreen(onWritePrescription: _openPrescriptionScreen),
+      const PrescriptionsScreen(),
+      if (_selectedPatient != null && doctorId != null)
+        WritePrescriptionScreen(
+          doctorId: doctorId!,
+          patient: _selectedPatient!,
+        )
+      else
+        const SizedBox(),
+      const ProfileScreen(),
     ];
-    fetchUserData();
-    _loadDashboardData();
+    setState(() => isLoading = false);
   }
 
-  // 🔹 Fetch logged-in user details
+  void _openPrescriptionScreen(Map<String, dynamic> patient) {
+    setState(() {
+      _selectedPatient = patient;
+      _page = 4; // Switch to WritePrescriptionScreen
+      _buildPages(); // rebuild pages with updated patient data
+    });
+  }
+
+  Future<void> _checkSessionValidity() async {
+    final isValid = await authService.isUserLoggedIn();
+    if (!isValid && mounted) {
+      await authService.signOut();
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+      );
+    }
+  }
+
   Future<void> fetchUserData() async {
     final name = await authService.getCurrentUserName();
     final id = await authService.getCurrentDoctorId();
 
     setState(() {
       userName = name ?? "Doctor";
-      doctorId = id;
-      isLoading = false;
+      doctorId = id ?? widget.doctorId;
     });
   }
 
-  Future<void> _checkSessionValidity() async {
-    final isValid = await authService.isUserLoggedIn();
-    if (!isValid) {
-      // Session expired → redirect to login
-      if (mounted) {
-        await authService.signOut();
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-              (route) => false,
-        );
-      }
-    }
-  }
-
-  // 🔹 Load today's appointment count + total patients
   Future<void> _loadDashboardData() async {
     setState(() => isLoading = true);
 
     try {
-      final currentUserName = await authService.getCurrentUserName();
-
-      // Step 1: Try to get doctorId (if doctor)
-      String? currentDoctorId = await authService.getCurrentDoctorId();
-
-      // Step 2: If not a doctor, get assigned doctor (if assistant)
-      if (currentDoctorId == null) {
-        currentDoctorId = await authService.getAssignedDoctorIdForAssistant();
-      }
-
-      if (currentDoctorId == null) {
-        print("⚠️ No doctor or assigned doctor found.");
-        setState(() => isLoading = false);
-        return;
-      }
-
+      final currentDoctorId = doctorId ?? widget.doctorId;
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-      // Step 3: Get today's appointment count
       final todayRes = await supabase
           .from('appointment_slots')
           .select('booked_count')
@@ -137,7 +125,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         todayCount += (slot['booked_count'] ?? 0) as int;
       }
 
-      // Step 4: Get total appointments (not unique patients)
       final appointmentsRes = await supabase
           .from('appointments')
           .select('appointment_id, status')
@@ -147,7 +134,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
       final totalPatientsCount =
       (appointmentsRes is List) ? appointmentsRes.length : 0;
 
-      // ✅ Step 5: Get pending slots (status = open)
       final pendingSlotsRes = await supabase
           .from('appointment_slots')
           .select('slot_id')
@@ -158,9 +144,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
       final pendingSlotsCount =
       (pendingSlotsRes is List) ? pendingSlotsRes.length : 0;
 
-      pendingSlots = pendingSlotsCount;
-
-      // Step 6: Load pending approvals
       final pendingRes = await supabase
           .from('appointments')
           .select('appointment_id')
@@ -169,75 +152,15 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
 
       pendingApprovalsCount = (pendingRes is List) ? pendingRes.length : 0;
 
-      final appointmentsList = await authService.getTodayAppointments();
-      upcomingAppointments = appointmentsList;
-
       setState(() {
-        userName = currentUserName ?? "Doctor";
-        doctorId = currentDoctorId;
         todayAppointments = todayCount;
         totalPatients = totalPatientsCount;
-        upcomingAppointments = appointmentsList;
-        this.pendingApprovalsCount = (pendingRes is List) ? pendingRes.length : 0;
+        pendingSlots = pendingSlotsCount;
         isLoading = false;
-
-        // Update homepage
-        _pages[0] = DoctorHomePage(
-          userName: userName ?? "Doctor",
-          todayAppointments: todayAppointments,
-          totalPatients: totalPatients,
-          pendingSlots: pendingSlots,
-          upcomingAppointments: upcomingAppointments,
-          pendingApprovalsCount: pendingApprovalsCount,
-        );
       });
-
-      print(
-          "✅ Dashboard updated for doctorId: $currentDoctorId\nToday's Appointments: $todayCount\nTotal Patients: $totalPatientsCount\nPending Slots: $pendingSlotsCount");
-    } catch (e, stack) {
-      print("❌ Error loading dashboard data: $e");
-      print(stack);
+    } catch (e) {
+      print("Error loading dashboard data: $e");
       setState(() => isLoading = false);
-    }
-  }
-
-  Future<void> _loadPendingApprovals() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    // Get doctor or assigned doctor
-    String? doctorId = await authService.getCurrentDoctorId();
-    if (doctorId == null) {
-      doctorId = await authService.getAssignedDoctorIdForAssistant();
-    }
-    if (doctorId == null) return;
-
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-    // Query appointments with status = 'pending'
-    final response = await supabase
-        .from('appointments')
-        .select('appointment_id')
-        .eq('doctor_id', doctorId)
-        .eq('status', 'pending');
-
-    if (response == null || response is! List) return;
-
-    setState(() {
-      pendingApprovalsCount = response.length;
-    });
-  }
-
-
-
-  Future<void> logout(BuildContext context) async {
-    await authService.signOut();
-    if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (route) => false,
-      );
     }
   }
 
@@ -250,36 +173,23 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
             ? const Center(child: CircularProgressIndicator())
             : IndexedStack(index: _page, children: _pages),
       ),
-      bottomNavigationBar: Container(
-        color: const Color(0xFFF0F5FF),
-        child: CurvedNavigationBar(
-          backgroundColor: Colors.transparent,
-          buttonBackgroundColor: Colors.blue.shade700,
-          color: Colors.white,
-          animationCurve: Curves.easeInOut,
-          animationDuration: const Duration(milliseconds: 400),
-          height: 65.0,
-          index: _page,
-          items: <Widget>[
-            Icon(Icons.home, size: 28, color: _page == 0 ? Colors.white : Colors.black54),
-            Icon(Icons.calendar_today_outlined, size: 28, color: _page == 1 ? Colors.white : Colors.black54),
-            Icon(Icons.group_outlined, size: 28, color: _page == 2 ? Colors.white : Colors.black54),
-            Icon(Icons.medication_liquid_outlined, size: 28, color: _page == 3 ? Colors.white : Colors.black54),
-            Icon(Icons.bar_chart_outlined, size: 28, color: _page == 4 ? Colors.white : Colors.black54),
-            Icon(Icons.person_outline, size: 28, color: _page == 5 ? Colors.white : Colors.black54),
-          ],
-          onTap: (index) {
-            setState(() {
-              _page = index;
-            });
-          },
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.red,
-        onPressed: () => logout(context),
-        tooltip: "Logout",
-        child: const Icon(Icons.logout, color: Colors.white),
+      bottomNavigationBar: CurvedNavigationBar(
+        backgroundColor: Colors.transparent,
+        buttonBackgroundColor: Colors.blue.shade700,
+        color: Colors.white,
+        animationCurve: Curves.easeInOut,
+        animationDuration: const Duration(milliseconds: 400),
+        height: 65.0,
+        index: _page,
+        items: const [
+          Icon(Icons.home, size: 28),
+          Icon(Icons.calendar_today_outlined, size: 28),
+          Icon(Icons.group_outlined, size: 28),
+          Icon(Icons.medication_liquid_outlined, size: 28),
+          Icon(Icons.edit_note_rounded, size: 28),
+          Icon(Icons.person_outline, size: 28),
+        ],
+        onTap: (index) => setState(() => _page = index),
       ),
     );
   }

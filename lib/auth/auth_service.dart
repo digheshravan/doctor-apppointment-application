@@ -194,6 +194,44 @@ class AuthService {
     return response?['doctor_id'] as String?;
   }
 
+  // 🔹 Fetch all appointments assigned to the logged-in doctor (with patient details)
+  Future<List<Map<String, dynamic>>> getAppointmentsForCurrentDoctor() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return [];
+
+    // Step 1: Identify doctor id (or assistant’s assigned doctor)
+    String? doctorId = await getCurrentDoctorId();
+    doctorId ??= await getAssignedDoctorIdForAssistant();
+    print('👨‍⚕️ Doctor ID: $doctorId');
+    print('🔑 Current Supabase User ID: ${_supabase.auth.currentUser?.id}');
+    if (doctorId == null) return [];
+
+    // Step 2: Fetch appointments joined with patient details
+    final response = await _supabase
+        .from('appointments')
+        .select('''
+        appointment_id,
+        appointment_date,
+        appointment_time,
+        reason,
+        status,
+        report_url,
+        visit_status,
+        patients(
+          patient_id,
+          name,
+          age,
+          gender
+        )
+      ''')
+        .eq('doctor_id', doctorId)
+        .order('appointment_date', ascending: true);
+
+    if (response == null || response is! List) return [];
+
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   Future<String?> getCurrentAssistantId() async {
     final user = _supabase.auth.currentUser;
     if (user == null) return null;
@@ -254,10 +292,10 @@ class AuthService {
 
     final response = await _supabase
         .from('appointments')
-        .select('status, appointment_time, patients(name)')
+        .select('status, visit_status, appointment_time, patients(name)')
         .eq('doctor_id', doctorId)
         .eq('appointment_date', today)
-        .inFilter('status', ['pending', 'confirmed']);
+        .eq('visit_status', 'active'); // Only patients who arrived
 
     if (response == null || response is! List) return [];
 
@@ -265,7 +303,13 @@ class AuthService {
       final name = row['patients']?['name'] ?? 'Unknown';
       final time = row['appointment_time'] ?? 'N/A';
       final status = row['status'] ?? 'Pending';
-      return {'name': name, 'time': time, 'status': status};
+      final visitStatus = row['visit_status'] ?? 'inactive';
+      return {
+        'name': name,
+        'time': time,
+        'status': status,
+        'visit_status': visitStatus
+      };
     }).toList();
   }
 

@@ -54,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
           nextScreen = const AdminDashboard();
           break;
         case 'doctor':
-          nextScreen = const DoctorDashboard();
+          nextScreen = const DoctorDashboard(doctorId: '',);
           break;
         case 'assistant':
           nextScreen = const AssistantDashboard();

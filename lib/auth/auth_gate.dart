@@ -39,7 +39,7 @@ class AuthGate extends StatelessWidget{
           final session = snapshot.hasData ? snapshot.data!.session : null;
 
           if(session != null){
-            return const DoctorDashboard();
+            return const DoctorDashboard(doctorId: '',);
           }else{
             return const LoginScreen();
           }
