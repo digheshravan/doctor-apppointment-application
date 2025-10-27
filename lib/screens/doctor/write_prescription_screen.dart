@@ -197,6 +197,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       final prescriptionResponse = await supabase.from('prescriptions').insert({
         'doctor_id': doctorId,
         'patient_id': _selectedPatient!['patient_id'],
+        'appointment_id': _selectedPatient!['appointment_id'],
         'diagnosis': _diagnosisController.text,
         'symptoms': _symptomsController.text,
         'additional_notes': _additionalNotesController.text,

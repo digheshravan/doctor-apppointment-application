@@ -173,6 +173,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
               }),
             ],
           ),
+          const SizedBox(height: 24),
+
+          // --- ADDED SECTION START ---
+          // 🔹 Assigned Assistant
+          _buildSectionTitle("Assigned Assistant"),
+          Card(
+            elevation: 1,
+            shadowColor: Colors.black.withOpacity(0.04),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade200),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              child: _buildAssistantTile(
+                name: "Sarah Johnson",
+                role: "Medical Assistant",
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton(
+            onPressed: () {
+              // TODO: Handle Add/Remove Assistant
+            },
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+              foregroundColor: Colors.grey.shade800,
+              side: BorderSide(color: Colors.grey.shade300),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              "Add / Remove Assistant",
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // --- ADDED SECTION END ---
+
           const SizedBox(height: 32),
 
           // 🔹 Logout Button
@@ -397,6 +440,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 4),
               Text(
                 address,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- ADDED HELPER WIDGET ---
+  Widget _buildAssistantTile({required String name, required String role}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(Icons.person_outline_rounded, color: Colors.blue.shade700, size: 28),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                role,
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey.shade600,
