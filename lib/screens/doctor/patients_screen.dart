@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:medi_slot/screens/doctor/write_prescription_screen.dart';
-
+import 'package:shimmer/shimmer.dart';
 import '../../auth/auth_service.dart';
 
 // -----------------------------------------------------------------------------
@@ -16,6 +15,7 @@ class PatientsScreen extends StatefulWidget {
 
 class _PatientsScreenState extends State<PatientsScreen> {
   List<Map<String, dynamic>> _allTodayPatients = [];
+  List<Map<String, dynamic>> _allPatients = [];
   final AuthService _authService = AuthService();
   List<Map<String, dynamic>> _patients = [];
   bool _isLoading = true;
@@ -38,14 +38,22 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
       final today = DateTime.now().toIso8601String().split('T').first;
 
-      // Only today’s appointments with accepted/confirmed status
+      // ✅ Store ALL patients (excluding cancelled/rejected)
+      _allPatients = patients.where((p) =>
+      p['status'] != 'cancelled' && p['status'] != 'rejected'
+      ).toList();
+
+      // Only today's appointments with accepted/confirmed status
       _allTodayPatients = patients.where((p) =>
       p['appointment_date'] == today &&
           (p['status'] == 'confirmed' || p['status'] == 'accepted')
       ).toList();
 
       // Filter for list display
-      if (filter == "Active") {
+      if (filter == "Total") {
+        // ✅ Show ALL patients when Total is selected
+        _patients = List.from(_allPatients);
+      } else if (filter == "Active") {
         _patients = _allTodayPatients
             .where((p) => p['visit_status'] == 'active')
             .toList();
@@ -53,8 +61,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
         _patients = _allTodayPatients
             .where((p) => p['visit_status'] == 'inactive')
             .toList();
-      } else {
-        _patients = List.from(_allTodayPatients);
       }
 
       setState(() {
@@ -103,7 +109,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                 child: InkWell(
                   onTap: () => _fetchPatients(filter: "Total"),
                   child: _PatientStatCard(
-                    count: _isLoading ? "..." : _allTodayPatients.length.toString(),
+                    count: _isLoading ? "..." : _allPatients.length.toString(), // ✅ FIXED
                     label: "Total",
                     color: Colors.blue.shade50,
                     textColor: Colors.blue.shade800,
@@ -154,7 +160,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
           const SizedBox(height: 10),
 
           if (_isLoading)
-            const Center(child: CircularProgressIndicator())
+            Column(
+              children: List.generate(5, (index) => const _ShimmerPatientCard()),
+            )
           else if (_patients.isEmpty)
             const Center(child: Text("No patients found"))
           else
@@ -166,6 +174,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                   'gender': p['patients']?['gender'] ?? 'N/A',
                   'age': p['patients']?['age']?.toString() ?? '-',
                   'status': p['visit_status'] ?? '-',
+                  'appointment_date': p['appointment_date'] ?? '-',
                 },
                 onWritePrescription: _onWritePrescription,
               )).toList(),
@@ -197,7 +206,19 @@ class _PatientStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return _isLoadingStat(context)
+        ? Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    )
+        : Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: color,
@@ -226,6 +247,15 @@ class _PatientStatCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  bool _isLoadingStat(BuildContext context) {
+    try {
+      // detect shimmer trigger by placeholder “...”
+      return count == "...";
+    } catch (_) {
+      return false;
+    }
   }
 }
 
@@ -482,6 +512,92 @@ class _StatusTag extends StatelessWidget {
           color: color,
           fontWeight: FontWeight.w600,
           fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+// -----------------------------------------------------------------------------
+// 🔹 Shimmer Placeholder for Patient Cards
+// -----------------------------------------------------------------------------
+class _ShimmerPatientCard extends StatelessWidget {
+  const _ShimmerPatientCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Avatar + text shimmer row
+            Row(
+              children: [
+                Container(
+                  height: 44,
+                  width: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 14,
+                        width: 100,
+                        color: Colors.grey.shade300,
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 12,
+                        width: 60,
+                        color: Colors.grey.shade300,
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  height: 20,
+                  width: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Expanded info section shimmer
+            Container(
+              height: 10,
+              width: double.infinity,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 10,
+              width: double.infinity,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 10,
+              width: double.infinity,
+              color: Colors.grey.shade300,
+            ),
+          ],
         ),
       ),
     );

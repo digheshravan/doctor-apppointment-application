@@ -3,13 +3,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 
 class DoctorDashboard extends StatefulWidget {
-  const DoctorDashboard({Key? key}) : super(key: key);
+  final String doctorId;
+  const DoctorDashboard({
+    Key? key,
+    required this.doctorId, // named required parameter
+  }) : super(key: key);
 
   @override
   State<DoctorDashboard> createState() => _DoctorDashboardState();
 }
 
 class _DoctorDashboardState extends State<DoctorDashboard> {
+
   final supabase = Supabase.instance.client;
   List<dynamic> pendingAssistants = [];
   bool isLoading = true;

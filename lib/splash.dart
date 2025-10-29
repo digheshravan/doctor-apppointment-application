@@ -42,7 +42,7 @@ class _SplashState extends State<Splash> {
           nextScreen = const DoctorDashboard(doctorId: '',);
           break;
         case 'assistant':
-          nextScreen = const AssistantDashboard();
+          nextScreen = const AssistantDashboardScreen();
           break;
         case 'patient':
         default:

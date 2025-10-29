@@ -2,50 +2,51 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../auth/auth_service.dart'; // For date formatting
-
 // -----------------------------------------------------------------------------
-// Write Prescription Screen
+// Write Prescription Screen for Assistant
 // -----------------------------------------------------------------------------
-class WritePrescriptionScreen extends StatefulWidget {
-  final String doctorId;
-  final Map<String, dynamic> patient; // add this
+class AssistantWritePrescriptionScreen extends StatefulWidget {
+  final Map<String, dynamic> patient; // pass patient info
 
-  const WritePrescriptionScreen({
+  const AssistantWritePrescriptionScreen({
     super.key,
-    required this.doctorId,
-    required this.patient, // pass patient info
+    this.patient = const {}, // default empty map
   });
 
   @override
-  State<WritePrescriptionScreen> createState() => _WritePrescriptionScreenState();
+  State<AssistantWritePrescriptionScreen> createState() =>
+      _AssistantWritePrescriptionScreenState();
 }
 
-
-class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
-  // Controllers for text fields (you'd use these to get input values)
+class _AssistantWritePrescriptionScreenState
+    extends State<AssistantWritePrescriptionScreen> {
+  // Controllers for text fields
   final TextEditingController _patientNameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
-  final TextEditingController _dateController = TextEditingController(text: DateFormat('dd-MM-yyyy').format(DateTime.now()));
+  final TextEditingController _dateController = TextEditingController(
+      text: DateFormat('dd-MM-yyyy').format(DateTime.now()));
   final TextEditingController _diagnosisController = TextEditingController();
   final TextEditingController _symptomsController = TextEditingController();
   final TextEditingController _medicineNameController = TextEditingController();
   final TextEditingController _dosageController = TextEditingController();
   final TextEditingController _durationController = TextEditingController();
   final TextEditingController _instructionsController = TextEditingController();
-  final TextEditingController _additionalNotesController = TextEditingController();
-  final TextEditingController _recommendedTestsController = TextEditingController();
-  final TextEditingController _followUpDateController = TextEditingController();
+  final TextEditingController _additionalNotesController =
+  TextEditingController();
+  final TextEditingController _recommendedTestsController =
+  TextEditingController();
+  final TextEditingController _followUpDateController =
+  TextEditingController();
 
   String? _selectedFrequency;
 
   // List to hold added medicines
   final List<Map<String, String>> _addedMedicines = [];
-  final AuthService authService = AuthService();
   List<Map<String, dynamic>> _todayAppointments = [];
   Map<String, dynamic>? _selectedPatient;
   bool _isLoading = false;
   String? _selectedGender;
+  String? _assignedDoctorId;
 
   @override
   void initState() {
@@ -64,27 +65,21 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       }
     }
 
-    // ✅ Always fetch today’s appointments (even if patient was passed)
+    // Always fetch today's appointments
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchTodayAppointments();
-    });
-  }
-
-  void _goToWritePrescription(Map<String, dynamic> patient) {
-    setState(() {
-      var _currentIndex = 5; // Index of WritePrescriptionScreen tab
-      _selectedPatient = patient;
+      _fetchAssignedDoctorAndAppointments();
     });
   }
 
   // Function to add a medicine to the list
   void _addMedicine() {
-    if (_medicineNameController.text.isNotEmpty && _dosageController.text.isNotEmpty) {
+    if (_medicineNameController.text.isNotEmpty &&
+        _dosageController.text.isNotEmpty) {
       setState(() {
         _addedMedicines.add({
           "name": _medicineNameController.text,
           "dosage": _dosageController.text,
-          "frequency": _selectedFrequency ?? "Daily", // Default if not selected
+          "frequency": _selectedFrequency ?? "Daily",
           "duration": _durationController.text,
           "instructions": _instructionsController.text,
         });
@@ -92,14 +87,12 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
         _dosageController.clear();
         _durationController.clear();
         _instructionsController.clear();
-        _selectedFrequency = null; // Reset dropdown
+        _selectedFrequency = null;
       });
     }
   }
 
-
-
-  Future<void> _fetchTodayAppointments() async {
+  Future<void> _fetchAssignedDoctorAndAppointments() async {
     setState(() => _isLoading = true);
     final supabase = Supabase.instance.client;
 
@@ -107,19 +100,23 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       final user = supabase.auth.currentUser;
       if (user == null) throw Exception("User not logged in");
 
-      // Get doctor_id linked to current user
-      final doctorData = await supabase
-          .from('doctors')
-          .select('doctor_id')
+      // Get assistant's assigned doctor
+      final assistantData = await supabase
+          .from('assistants')
+          .select('assistant_id, assigned_doctor_id')
           .eq('user_id', user.id)
           .single();
 
-      final doctorId = doctorData['doctor_id'];
+      _assignedDoctorId = assistantData['assigned_doctor_id'];
 
-      // Get today's date in 'yyyy-MM-dd' format to match DB column
+      if (_assignedDoctorId == null) {
+        throw Exception('No doctor assigned to this assistant');
+      }
+
+      // Get today's date in 'yyyy-MM-dd' format
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-      // Fetch all appointments for this doctor today
+      // Fetch all appointments for assigned doctor today
       final appointments = await supabase
           .from('appointments')
           .select('''
@@ -127,7 +124,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           appointment_date, 
           patients!inner(patient_id, name, age, gender)
         ''')
-          .eq('doctor_id', doctorId)
+          .eq('doctor_id', _assignedDoctorId!)
           .eq('appointment_date', today)
           .eq('visit_status', 'active');
 
@@ -137,9 +134,9 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       });
     } catch (e) {
       setState(() => _isLoading = false);
-      print('Full error: $e'); // Add this to see complete error
+      print('Full error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error fetching today\'s appointments: $e')),
+        SnackBar(content: Text('Error fetching appointments: $e')),
       );
     }
   }
@@ -147,14 +144,15 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
   Future<void> _savePrescription() async {
     final supabase = Supabase.instance.client;
 
-    if (_patientNameController.text.isEmpty || _diagnosisController.text.isEmpty) {
+    if (_patientNameController.text.isEmpty ||
+        _diagnosisController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill in all required fields')),
       );
       return;
     }
 
-    // Add validation for patient selection
+    // Validate patient selection
     if (_selectedPatient == null || _selectedPatient?['patient_id'] == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a patient first')),
@@ -162,29 +160,27 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       return;
     }
 
+    // Validate assigned doctor
+    if (_assignedDoctorId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No doctor assigned. Cannot save prescription.')),
+      );
+      return;
+    }
+
     try {
-      // 🔹 Get current doctorId from logged-in user
-      final user = supabase.auth.currentUser;
-      if (user == null) throw Exception("User not logged in");
-
-      final doctorData = await supabase
-          .from('doctors')
-          .select('doctor_id')
-          .eq('user_id', user.id)
-          .single();
-
-      final doctorId = doctorData['doctor_id'];
-
       // Debug print
       print('🔍 Selected Patient: $_selectedPatient');
       print('🔍 Patient ID: ${_selectedPatient?['patient_id']}');
       print('🔍 Appointment ID: ${_selectedPatient?['appointment_id']}');
+      print('🔍 Assigned Doctor ID: $_assignedDoctorId');
 
-      // 🔹 Parse dates properly
+      // Parse dates properly
       DateTime prescriptionDate = DateTime.now();
       if (_dateController.text.isNotEmpty) {
         try {
-          prescriptionDate = DateFormat('dd-MM-yyyy').parse(_dateController.text);
+          prescriptionDate =
+              DateFormat('dd-MM-yyyy').parse(_dateController.text);
         } catch (e) {
           print('Date parse error: $e');
         }
@@ -193,15 +189,16 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       DateTime? followUpDate;
       if (_followUpDateController.text.isNotEmpty) {
         try {
-          followUpDate = DateFormat('dd-MM-yyyy').parse(_followUpDateController.text);
+          followUpDate =
+              DateFormat('dd-MM-yyyy').parse(_followUpDateController.text);
         } catch (e) {
           print('Follow-up date parse error: $e');
         }
       }
 
-      // 🔹 Insert into prescriptions table
+      // Insert into prescriptions table (using assigned doctor's ID)
       final prescriptionResponse = await supabase.from('prescriptions').insert({
-        'doctor_id': doctorId,
+        'doctor_id': _assignedDoctorId, // Using assigned doctor's ID
         'patient_id': _selectedPatient!['patient_id'],
         'appointment_id': _selectedPatient!['appointment_id'],
         'diagnosis': _diagnosisController.text,
@@ -216,7 +213,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
 
       final prescriptionId = prescriptionResponse['prescription_id'];
 
-      // 🔹 Insert all medicines
+      // Insert all medicines
       if (_addedMedicines.isNotEmpty) {
         for (var med in _addedMedicines) {
           await supabase.from('prescription_medicines').insert({
@@ -230,7 +227,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
         }
       }
 
-      // 🔹 Update visit_status to 'completed' in appointments table
+      // Update visit_status to 'completed' in appointments table
       if (_selectedPatient?['appointment_id'] != null) {
         await supabase
             .from('appointments')
@@ -241,7 +238,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Prescription saved and visit completed!')),
+        const SnackBar(
+            content: Text('✅ Prescription saved and visit completed!')),
       );
 
       // Clear form
@@ -258,9 +256,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
         _selectedGender = null;
       });
 
-      // Refresh today's appointments to reflect the change
-      await _fetchTodayAppointments();
-
+      // Refresh today's appointments
+      await _fetchAssignedDoctorAndAppointments();
     } catch (e) {
       print('❌ Full error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -270,7 +267,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
   }
 
   // Date picker for prescription date
-  Future<void> _selectDate(BuildContext context, TextEditingController controller) async {
+  Future<void> _selectDate(
+      BuildContext context, TextEditingController controller) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -319,7 +317,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.description_outlined, color: Colors.blue.shade700, size: 36),
+                        Icon(Icons.description_outlined,
+                            color: Colors.blue.shade700, size: 36),
                         const SizedBox(height: 8),
                         const Text(
                           "Write Prescription",
@@ -331,7 +330,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          "Create new prescription",
+                          "Create prescription for assigned doctor",
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.grey.shade600,
@@ -363,8 +362,10 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                       );
                       if (selected.isNotEmpty) {
                         setState(() {
-                          _patientNameController.text = selected['patients']['name'] ?? '';
-                          _ageController.text = selected['patients']['age']?.toString() ?? '';
+                          _patientNameController.text =
+                              selected['patients']['name'] ?? '';
+                          _ageController.text =
+                              selected['patients']['age']?.toString() ?? '';
                           _selectedGender = selected['patients']['gender'] ?? '';
                           _selectedPatient = {
                             "name": selected['patients']['name'],
@@ -388,17 +389,17 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                             _buildLabel("Age"),
                             TextField(
                               controller: _ageController,
-                              readOnly: true, // ✅ make it non-editable
+                              readOnly: true,
                               decoration: InputDecoration(
                                 hintText: "Age",
                                 filled: true,
-                                fillColor: Colors.grey.shade100, // optional: visually indicate read-only
+                                fillColor: Colors.grey.shade100,
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
                                   borderSide: BorderSide.none,
                                 ),
-                                contentPadding:
-                                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
                               ),
                             ),
                           ],
@@ -411,8 +412,9 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                           children: [
                             _buildLabel("Gender"),
                             TextField(
-                              controller: TextEditingController(text: _selectedGender ?? ''),
-                              readOnly: true, // ✅ make it non-editable
+                              controller: TextEditingController(
+                                  text: _selectedGender ?? ''),
+                              readOnly: true,
                               decoration: InputDecoration(
                                 hintText: "Select",
                                 filled: true,
@@ -421,8 +423,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                                   borderRadius: BorderRadius.circular(10),
                                   borderSide: BorderSide.none,
                                 ),
-                                contentPadding:
-                                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
                               ),
                             ),
                           ],
@@ -434,7 +436,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                   _buildLabel("Date"),
                   TextField(
                     controller: _dateController,
-                    readOnly: true, // always non-editable
+                    readOnly: true,
                     decoration: InputDecoration(
                       hintText: "dd-MM-yyyy",
                       filled: true,
@@ -443,7 +445,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
                     ),
                   )
                 ],
@@ -475,7 +478,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
               _buildCard(
                 context,
                 title: "Add Medicines",
-                icon: Icons.link,
+                icon: Icons.medication_outlined,
                 children: [
                   // Display added medicines
                   if (_addedMedicines.isNotEmpty) ...[
@@ -520,8 +523,14 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                             _buildLabel("Frequency"),
                             _buildDropdownField(
                               "Select",
-                              items: ["Daily", "Twice a day", "Thrice a day", "As needed"],
-                              onChanged: (value) => setState(() => _selectedFrequency = value),
+                              items: [
+                                "Daily",
+                                "Twice a day",
+                                "Thrice a day",
+                                "As needed"
+                              ],
+                              onChanged: (value) =>
+                                  setState(() => _selectedFrequency = value),
                               value: _selectedFrequency,
                             ),
                           ],
@@ -615,7 +624,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                       },
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.blue.shade700,
-                        side: BorderSide(color: Colors.blue.shade700, width: 1.5),
+                        side: BorderSide(
+                            color: Colors.blue.shade700, width: 1.5),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -661,8 +671,10 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
 
   // --- Helper Widgets for form elements ---
 
-  // Card container for each section
-  Widget _buildCard(BuildContext context, {required String title, required IconData icon, required List<Widget> children}) {
+  Widget _buildCard(BuildContext context,
+      {required String title,
+        required IconData icon,
+        required List<Widget> children}) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -701,7 +713,6 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
     );
   }
 
-  // Common label for form fields
   Widget _buildLabel(String label) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
@@ -716,8 +727,8 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
     );
   }
 
-  // Common text field style
-  Widget _buildTextField(TextEditingController controller, {String hint = "", TextInputType keyboardType = TextInputType.text}) {
+  Widget _buildTextField(TextEditingController controller,
+      {String hint = "", TextInputType keyboardType = TextInputType.text}) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
@@ -730,13 +741,14 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
 
-  // Common multiline text field style
-  Widget _buildMultilineTextField(TextEditingController controller, {String hint = "", int minLines = 2, int maxLines = 5}) {
+  Widget _buildMultilineTextField(TextEditingController controller,
+      {String hint = "", int minLines = 2, int maxLines = 5}) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
@@ -750,12 +762,12 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
 
-  // Common dropdown field style
   Widget _buildDropdownField(
       String hint, {
         required List<String> items,
@@ -780,12 +792,12 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
 
-  // Date field with calendar icon
   Widget _buildDateField(
       BuildContext context,
       TextEditingController controller, {
@@ -805,12 +817,12 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           borderSide: BorderSide.none,
         ),
         suffixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
 }
-
 
 // -----------------------------------------------------------------------------
 // Helper Widget: Display for Added Medicines

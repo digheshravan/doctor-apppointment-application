@@ -9,6 +9,7 @@ import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shimmer/shimmer.dart';
 
 // -----------------------------------------------------------------------------
 // Doctor Dashboard
@@ -24,6 +25,7 @@ class DoctorDashboard extends StatefulWidget {
 class _DoctorDashboardState extends State<DoctorDashboard> {
   final AuthService authService = AuthService();
   final SupabaseClient supabase = Supabase.instance.client;
+  int _pageIndex = 0;
 
   String? userName;
   String? doctorId;
@@ -34,6 +36,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
   int totalPatients = 0;
   int pendingSlots = 0;
   int pendingApprovalsCount = 0;
+  int completedConsultations = 0;
   List<Map<String, dynamic>> upcomingAppointments = [];
   Map<String, dynamic>? _selectedPatient;
 
@@ -61,27 +64,38 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         pendingSlots: pendingSlots,
         upcomingAppointments: upcomingAppointments,
         pendingApprovalsCount: pendingApprovalsCount,
+        completedConsultations: completedConsultations,
+        isLoading: isLoading,
       ),
       const AppointmentsScreen(),
       PatientsScreen(onWritePrescription: _openPrescriptionScreen),
-      const PrescriptionsScreen(),
-      if (_selectedPatient != null && doctorId != null)
-        WritePrescriptionScreen(
-          doctorId: doctorId!,
-          patient: _selectedPatient!,
-        )
-      else
-        const SizedBox(),
+      PrescriptionsScreen(
+        onAddPressed: () {
+          setState(() {
+            _pageIndex = 4;
+            _page = 4;
+          });
+        },
+      ),
+      WritePrescriptionScreen(
+        doctorId: doctorId ?? widget.doctorId,
+        patient: _selectedPatient ?? {
+          'name': 'Select Patient',
+          'age': '',
+          'gender': '',
+          'relation': '',
+          'patient_id': '',
+        },
+      ),
       const ProfileScreen(),
     ];
-    setState(() => isLoading = false);
   }
 
   void _openPrescriptionScreen(Map<String, dynamic> patient) {
     setState(() {
       _selectedPatient = patient;
-      _page = 4; // Switch to WritePrescriptionScreen
-      _buildPages(); // rebuild pages with updated patient data
+      _pageIndex = 4; // switch to WritePrescriptionScreen
+      _buildPages();
     });
   }
 
@@ -109,11 +123,13 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
 
   Future<void> _loadDashboardData() async {
     setState(() => isLoading = true);
+    _buildPages();
 
     try {
       final currentDoctorId = doctorId ?? widget.doctorId;
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
+      // 1. Today's booked appointments
       final todayRes = await supabase
           .from('appointment_slots')
           .select('booked_count')
@@ -121,46 +137,83 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .eq('slot_date', today);
 
       int todayCount = 0;
-      for (var slot in todayRes) {
-        todayCount += (slot['booked_count'] ?? 0) as int;
+      if (todayRes is List) {
+        todayCount = todayRes.fold<int>(
+            0, (sum, slot) => sum + ((slot['booked_count'] ?? 0) as int));
       }
 
+      // 2. Total patients
       final appointmentsRes = await supabase
           .from('appointments')
-          .select('appointment_id, status')
+          .select('appointment_id')
           .eq('doctor_id', currentDoctorId)
           .not('status', 'in', ['cancelled', 'rejected']);
+      final totalPatientsCount = (appointmentsRes is List) ? appointmentsRes.length : 0;
 
-      final totalPatientsCount =
-      (appointmentsRes is List) ? appointmentsRes.length : 0;
-
+      // 3. Pending slots today
       final pendingSlotsRes = await supabase
           .from('appointment_slots')
           .select('slot_id')
           .eq('doctor_id', currentDoctorId)
           .eq('slot_date', today)
           .eq('status', 'open');
+      final pendingSlotsCount = (pendingSlotsRes is List) ? pendingSlotsRes.length : 0;
 
-      final pendingSlotsCount =
-      (pendingSlotsRes is List) ? pendingSlotsRes.length : 0;
-
+      // 4. Pending approvals
       final pendingRes = await supabase
           .from('appointments')
           .select('appointment_id')
           .eq('doctor_id', currentDoctorId)
           .eq('status', 'pending');
+      final pendingApprovalsCountLocal = (pendingRes is List) ? pendingRes.length : 0;
 
-      pendingApprovalsCount = (pendingRes is List) ? pendingRes.length : 0;
+      // ✅ 5. Completed consultations
+      final completedRes = await supabase
+          .from('appointments')
+          .select('appointment_id')
+          .eq('doctor_id', currentDoctorId)
+          .eq('visit_status', 'completed');
+      final completedConsultationsCount = (completedRes is List) ? completedRes.length : 0;
 
+      // 6. Upcoming appointments (3 max)
+      final upcomingRes = await supabase
+          .from('appointments')
+          .select('appointment_date, appointment_time, status, visit_status, patients(name)')
+          .eq('doctor_id', currentDoctorId)
+          .eq('status', 'accepted')
+          .neq('visit_status', 'completed')
+          .gte('appointment_date', today)
+          .order('appointment_date', ascending: true)
+          .limit(3);
+
+      final List<Map<String, dynamic>> fetchedAppointments = [];
+      if (upcomingRes is List) {
+        for (final appt in upcomingRes) {
+          fetchedAppointments.add({
+            'name': (appt['patients'] != null && appt['patients']['name'] != null)
+                ? appt['patients']['name']
+                : 'Unknown',
+            'time': '${appt['appointment_date']} ${appt['appointment_time']}',
+            'status': appt['status'] ?? 'Pending',
+          });
+        }
+      }
+
+      // Update state once
       setState(() {
         todayAppointments = todayCount;
         totalPatients = totalPatientsCount;
         pendingSlots = pendingSlotsCount;
+        pendingApprovalsCount = pendingApprovalsCountLocal;
+        completedConsultations = completedConsultationsCount; // ✅ ADD THIS
+        upcomingAppointments = fetchedAppointments;
         isLoading = false;
       });
     } catch (e) {
       print("Error loading dashboard data: $e");
       setState(() => isLoading = false);
+    } finally {
+      _buildPages();
     }
   }
 
@@ -169,9 +222,12 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : IndexedStack(index: _page, children: _pages),
+        child: RefreshIndicator(
+            onRefresh: _loadDashboardData,
+            child: (_page == 0 && isLoading)
+                ? _buildFullScreenShimmer()
+                : IndexedStack(index: _pageIndex, children: _pages)
+        ),
       ),
       bottomNavigationBar: CurvedNavigationBar(
         backgroundColor: Colors.transparent,
@@ -180,7 +236,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         animationCurve: Curves.easeInOut,
         animationDuration: const Duration(milliseconds: 400),
         height: 65.0,
-        index: _page,
+        index: _pageIndex,
         items: const [
           Icon(Icons.home, size: 28),
           Icon(Icons.calendar_today_outlined, size: 28),
@@ -189,10 +245,71 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           Icon(Icons.edit_note_rounded, size: 28),
           Icon(Icons.person_outline, size: 28),
         ],
-        onTap: (index) => setState(() => _page = index),
+        onTap: (index) => setState(() => _pageIndex = index),
       ),
     );
   }
+  Widget _buildFullScreenShimmer() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Container(height: 24, width: 200, color: Colors.white),
+            const SizedBox(height: 10),
+            Container(height: 16, width: 150, color: Colors.white),
+            const SizedBox(height: 20),
+
+            // Stats grid
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: 4,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 15,
+                mainAxisSpacing: 15,
+                childAspectRatio: 1.5,
+              ),
+              itemBuilder: (_, __) => Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Ready to start card
+            Container(height: 100, width: double.infinity, color: Colors.white),
+            const SizedBox(height: 25),
+
+            // Upcoming appointments
+            Container(height: 20, width: 180, color: Colors.white),
+            const SizedBox(height: 10),
+            ...List.generate(
+                3,
+                    (_) => Container(
+                  height: 70,
+                  color: Colors.white,
+                  margin: const EdgeInsets.only(bottom: 12),
+                )),
+
+            const SizedBox(height: 20),
+
+            // Pending approvals
+            Container(height: 50, width: double.infinity, color: Colors.white),
+            const SizedBox(height: 100),
+          ],
+        ),
+      ),
+    );
+  }
+
 }
 
 // -----------------------------------------------------------------------------
@@ -205,6 +322,8 @@ class DoctorHomePage extends StatelessWidget {
   final int pendingSlots;
   final List<Map<String, dynamic>> upcomingAppointments;
   final int pendingApprovalsCount;
+  final bool isLoading;
+  final int completedConsultations;
 
   const DoctorHomePage({
     super.key,
@@ -214,14 +333,15 @@ class DoctorHomePage extends StatelessWidget {
     required this.pendingSlots,
     required this.upcomingAppointments,
     required this.pendingApprovalsCount,
+    required this.completedConsultations,
+    required this.isLoading,
+
   });
 
   @override
   Widget build(BuildContext context) {
     final String currentDate =
     DateFormat('EEEE, MMMM d').format(DateTime.now());
-
-    const int completedConsultations = 7;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -230,11 +350,11 @@ class DoctorHomePage extends StatelessWidget {
         children: [
           _buildHeader(userName, currentDate),
           const SizedBox(height: 20),
-          _buildStatCards(todayAppointments, totalPatients, pendingSlots, completedConsultations),
+          _buildStatCards(todayAppointments, totalPatients, pendingSlots, completedConsultations, isLoading),
           const SizedBox(height: 25),
           _buildReadyToStartCard(),
           const SizedBox(height: 25),
-          _buildUpcomingAppointmentsSection(context, upcomingAppointments),
+          _buildUpcomingAppointmentsSection(context, upcomingAppointments, isLoading),
           const SizedBox(height: 15),
           _buildPendingApprovals(),
           const SizedBox(height: 100),
@@ -266,14 +386,18 @@ class DoctorHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCards(int appointments, int patients, int pending, int completed) {
+  Widget _buildStatCards(int appointments, int patients, int pending, int completed, bool isLoading) {
+    final dummyCards = List.generate(4, (index) => _ShimmerStatCard());
+
     return GridView.count(
       shrinkWrap: true,
       crossAxisCount: 2,
       crossAxisSpacing: 15,
       mainAxisSpacing: 15,
       physics: const NeverScrollableScrollPhysics(),
-      children: [
+      children: isLoading
+          ? dummyCards
+          : [
         _StatCard(
           value: appointments,
           label: "Today's Appointments",
@@ -294,7 +418,7 @@ class DoctorHomePage extends StatelessWidget {
         ),
         _StatCard(
           value: completed,
-          label: 'Completed (Pending to update SH)',
+          label: 'Completed Appointments',
           icon: Icons.check_circle_outline,
           color: Colors.purple.shade700,
         ),
@@ -354,7 +478,10 @@ class DoctorHomePage extends StatelessWidget {
   }
 
   Widget _buildUpcomingAppointmentsSection(
-      BuildContext context, List<Map<String, dynamic>> appointments) {
+      BuildContext context,
+      List<Map<String, dynamic>> appointments,
+      bool isLoading,
+      ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -373,11 +500,16 @@ class DoctorHomePage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        ...appointments.map((appointment) => _AppointmentTile(
-          name: appointment['name'],
-          time: appointment['time'],
-          status: appointment['status'],
-        )),
+        if (isLoading)
+          ...List.generate(3, (_) => const _ShimmerAppointmentTile())
+        else if (appointments.isEmpty)
+          const Text("No upcoming appointments", style: TextStyle(color: Colors.grey))
+        else
+          ...appointments.map((appointment) => _AppointmentTile(
+            name: appointment['name'],
+            time: appointment['time'],
+            status: appointment['status'],
+          ))
       ],
     );
   }
@@ -542,6 +674,45 @@ class _AppointmentTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis),
           ),
         ],
+      ),
+    );
+  }
+}
+// -----------------------------------------------------------------------------
+// Shimmer Placeholders
+// -----------------------------------------------------------------------------
+class _ShimmerStatCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Container(
+        height: 100,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShimmerAppointmentTile extends StatelessWidget {
+  const _ShimmerAppointmentTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        height: 70,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+        ),
       ),
     );
   }

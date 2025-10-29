@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 // Make sure this path is correct for your project structure
 import 'package:medi_slot/screens/login_screen.dart'; // Ensure this path is correct
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -21,12 +22,14 @@ class _SignupScreenState extends State<SignupScreen> {
   final TextEditingController _confirmPasswordController =
   TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _ageController = TextEditingController();
+  final TextEditingController _dobController = TextEditingController();
 
   // State variables
   String? _selectedRole;
   String? _gender;
   String? _selectedDoctorId;
+  DateTime? _selectedDate;
+  int? _calculatedAge;
   final List<String> _roles = ["Patient", "Doctor", "Assistant"];
   Map<String, String> _doctorsMap = {}; // Maps doctor name to doctor_id
 
@@ -34,11 +37,30 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  // Auto-validate mode - enables real-time validation
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
+
   @override
   void initState() {
     super.initState();
     // Fetch doctors when the screen loads, for the assistant role
     fetchDoctors();
+
+    // Add listeners to enable auto-validation after first interaction
+    _nameController.addListener(_onFieldChanged);
+    _emailController.addListener(_onFieldChanged);
+    _passwordController.addListener(_onFieldChanged);
+    _confirmPasswordController.addListener(_onFieldChanged);
+    _phoneController.addListener(_onFieldChanged);
+  }
+
+  void _onFieldChanged() {
+    // Enable auto-validation after user starts typing
+    if (_autoValidateMode == AutovalidateMode.disabled) {
+      setState(() {
+        _autoValidateMode = AutovalidateMode.onUserInteraction;
+      });
+    }
   }
 
   @override
@@ -49,8 +71,56 @@ class _SignupScreenState extends State<SignupScreen> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _phoneController.dispose();
-    _ageController.dispose();
+    _dobController.dispose();
     super.dispose();
+  }
+
+  // Calculate age from date of birth
+  int _calculateAge(DateTime birthDate) {
+    final today = DateTime.now();
+    int age = today.year - birthDate.year;
+
+    // Adjust if birthday hasn't occurred yet this year
+    if (today.month < birthDate.month ||
+        (today.month == birthDate.month && today.day < birthDate.day)) {
+      age--;
+    }
+
+    return age;
+  }
+
+  // Show date picker and calculate age
+  Future<void> _selectDateOfBirth(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(2000, 1, 1),
+      firstDate: DateTime(1924), // 100 years ago
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF00A9F1),
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+        _calculatedAge = _calculateAge(picked);
+        _dobController.text = DateFormat('dd/MM/yyyy').format(picked);
+        // Enable auto-validation after date selection
+        _autoValidateMode = AutovalidateMode.onUserInteraction;
+      });
+      // Trigger form validation
+      _formKey.currentState?.validate();
+    }
   }
 
   // Fetch all approved doctors from Supabase
@@ -88,6 +158,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
   // Main signup function
   Future<void> signUp() async {
+    // Enable auto-validation for all fields
+    setState(() {
+      _autoValidateMode = AutovalidateMode.always;
+    });
+
     if (!_formKey.currentState!.validate()) return;
 
     if (_gender == null) {
@@ -100,6 +175,13 @@ class _SignupScreenState extends State<SignupScreen> {
     if (_selectedRole == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please select a role")),
+      );
+      return;
+    }
+
+    if (_calculatedAge == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please select your date of birth")),
       );
       return;
     }
@@ -117,9 +199,9 @@ class _SignupScreenState extends State<SignupScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final phone = _phoneController.text.trim();
-    final age = int.tryParse(_ageController.text.trim()) ?? 0;
+    final age = _calculatedAge!;
     final role = _selectedRole!;
-    final genderValue = _gender!; // Renamed to avoid conflict
+    final genderValue = _gender!;
     final assignedDoctorId = _selectedDoctorId;
 
     try {
@@ -149,8 +231,8 @@ class _SignupScreenState extends State<SignupScreen> {
           'user_id': userId,
           'phone': phone,
           'gender': genderValue,
-          'specialization': "General", // Default value
-          'years_of_experience': 0, // Default value
+          'specialization': "General",
+          'years_of_experience': 0,
           'status': "pending",
         });
       } else if (role == "Assistant") {
@@ -187,12 +269,9 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Define your color scheme (example)
     final Color primaryColor = const Color(0xFF00A9F1);
     final Color accentColor = const Color(0xFF0077B6);
     final Color backgroundColor = Colors.white;
-    // final Color textFieldFillColor = Colors.grey[100]!; // Defined in _buildTextField & _buildDropdown
-    // final Color errorColor = Colors.redAccent; // Defined in _buildTextField
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -203,21 +282,17 @@ class _SignupScreenState extends State<SignupScreen> {
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme:
-        const IconThemeData(color: Colors.black87), // Ensure back button is visible
+        iconTheme: const IconThemeData(color: Colors.black87),
       ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
           child: Form(
             key: _formKey,
+            autovalidateMode: _autoValidateMode,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                // Optional: Add a logo or header image here
-                // Image.asset('assets/your_logo.png', height: 100),
-                // const SizedBox(height: 24),
-
                 Text(
                   "Let's Get Started!",
                   textAlign: TextAlign.center,
@@ -245,10 +320,13 @@ class _SignupScreenState extends State<SignupScreen> {
                   items: _roles
                       .map((r) => DropdownMenuItem(value: r, child: Text(r)))
                       .toList(),
-                  onChanged: (v) => setState(() {
-                    _selectedRole = v;
-                    _selectedDoctorId = null;
-                  }),
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedRole = v;
+                      _selectedDoctorId = null;
+                      _autoValidateMode = AutovalidateMode.onUserInteraction;
+                    });
+                  },
                   validator: (v) => v == null ? "Please select a role" : null,
                   icon: Icons.person_search_outlined,
                 ),
@@ -263,7 +341,12 @@ class _SignupScreenState extends State<SignupScreen> {
                         .map((e) =>
                         DropdownMenuItem(value: e.value, child: Text(e.key)))
                         .toList(),
-                    onChanged: (v) => setState(() => _selectedDoctorId = v),
+                    onChanged: (v) {
+                      setState(() {
+                        _selectedDoctorId = v;
+                        _autoValidateMode = AutovalidateMode.onUserInteraction;
+                      });
+                    },
                     validator: (v) =>
                     v == null ? "Please select a doctor" : null,
                     icon: Icons.medical_services_outlined,
@@ -282,17 +365,31 @@ class _SignupScreenState extends State<SignupScreen> {
                     label: 'Email Address',
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    validator: (v) =>
-                    !v!.contains("@") ? "Enter a valid email address" : null,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) {
+                        return "Please enter your email";
+                      }
+                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                          .hasMatch(v)) {
+                        return "Enter a valid email address";
+                      }
+                      return null;
+                    },
                     icon: Icons.email_outlined),
                 const SizedBox(height: 20),
                 _buildTextField(
                   label: 'Password',
                   controller: _passwordController,
                   isObscure: _obscurePassword,
-                  validator: (v) => v!.length < 6
-                      ? "Password must be at least 6 characters"
-                      : null,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) {
+                      return "Please enter a password";
+                    }
+                    if (v.length < 6) {
+                      return "Password must be at least 6 characters";
+                    }
+                    return null;
+                  },
                   icon: Icons.lock_outline,
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -309,8 +406,15 @@ class _SignupScreenState extends State<SignupScreen> {
                   label: 'Confirm Password',
                   controller: _confirmPasswordController,
                   isObscure: _obscureConfirmPassword,
-                  validator: (v) =>
-                  v != _passwordController.text ? "Passwords do not match" : null,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) {
+                      return "Please confirm your password";
+                    }
+                    if (v != _passwordController.text) {
+                      return "Passwords do not match";
+                    }
+                    return null;
+                  },
                   icon: Icons.lock_outline,
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -327,20 +431,29 @@ class _SignupScreenState extends State<SignupScreen> {
                     label: 'Phone Number (10 digits)',
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    validator: (v) => !RegExp(r'^[0-9]{10}$').hasMatch(v!)
-                        ? "Enter a valid 10-digit phone number"
-                        : null,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) {
+                        return "Please enter your phone number";
+                      }
+                      if (!RegExp(r'^[0-9]{10}$').hasMatch(v)) {
+                        return "Enter a valid 10-digit phone number";
+                      }
+                      return null;
+                    },
                     icon: Icons.phone_outlined),
                 const SizedBox(height: 20),
-                _buildTextField(
-                    label: 'Age',
-                    controller: _ageController,
-                    keyboardType: TextInputType.number,
-                    validator: (v) =>
-                    int.tryParse(v!) == null || int.parse(v) <= 0
-                        ? "Enter a valid age"
-                        : null,
-                    icon: Icons.cake_outlined),
+
+                // Date of Birth Picker (replaces Age field)
+                _buildDateField(
+                  label: _calculatedAge != null
+                      ? 'Date of Birth (Age: $_calculatedAge)'
+                      : 'Date of Birth',
+                  controller: _dobController,
+                  validator: (v) =>
+                  v == null || v.isEmpty ? "Please select your date of birth" : null,
+                  icon: Icons.cake_outlined,
+                  onTap: () => _selectDateOfBirth(context),
+                ),
                 const SizedBox(height: 24),
 
                 // Gender Selection
@@ -357,7 +470,12 @@ class _SignupScreenState extends State<SignupScreen> {
                           title: const Text("Male"),
                           value: "Male",
                           groupValue: _gender,
-                          onChanged: (v) => setState(() => _gender = v),
+                          onChanged: (v) {
+                            setState(() {
+                              _gender = v;
+                              _autoValidateMode = AutovalidateMode.onUserInteraction;
+                            });
+                          },
                           activeColor: primaryColor,
                           contentPadding: EdgeInsets.zero,
                         )),
@@ -366,7 +484,12 @@ class _SignupScreenState extends State<SignupScreen> {
                           title: const Text("Female"),
                           value: "Female",
                           groupValue: _gender,
-                          onChanged: (v) => setState(() => _gender = v),
+                          onChanged: (v) {
+                            setState(() {
+                              _gender = v;
+                              _autoValidateMode = AutovalidateMode.onUserInteraction;
+                            });
+                          },
                           activeColor: primaryColor,
                           contentPadding: EdgeInsets.zero,
                         )),
@@ -379,8 +502,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   onPressed: _isLoading ? null : signUp,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
-                    padding:
-                    const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                     elevation: 5,
@@ -420,7 +542,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16), // Bottom padding
+                const SizedBox(height: 16),
               ],
             ),
           ),
@@ -441,7 +563,7 @@ class _SignupScreenState extends State<SignupScreen> {
   }) {
     final Color primaryColor = const Color(0xFF00A9F1);
     final Color textFieldFillColor = Colors.grey[100]!;
-    final Color errorColor = Colors.redAccent[700]!; // Slightly darker red
+    final Color errorColor = Colors.redAccent[700]!;
 
     return TextFormField(
       controller: controller,
@@ -479,7 +601,60 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
         errorStyle: TextStyle(color: errorColor, fontWeight: FontWeight.w500),
         contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 16), // Consistent padding
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      ),
+    );
+  }
+
+  // Date field widget
+  Widget _buildDateField({
+    required String label,
+    required TextEditingController controller,
+    required String? Function(String?)? validator,
+    required VoidCallback onTap,
+    IconData? icon,
+  }) {
+    final Color primaryColor = const Color(0xFF00A9F1);
+    final Color textFieldFillColor = Colors.grey[100]!;
+    final Color errorColor = Colors.redAccent[700]!;
+
+    return TextFormField(
+      controller: controller,
+      validator: validator,
+      readOnly: true,
+      onTap: onTap,
+      style: TextStyle(color: Colors.grey[800], fontSize: 16),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: Colors.grey[700]),
+        prefixIcon:
+        icon != null ? Icon(icon, color: primaryColor, size: 20) : null,
+        suffixIcon: Icon(Icons.calendar_today, color: primaryColor, size: 20),
+        filled: true,
+        fillColor: textFieldFillColor,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey[350]!, width: 1.0),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: primaryColor, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: errorColor, width: 1.0),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: errorColor, width: 1.5),
+        ),
+        errorStyle: TextStyle(color: errorColor, fontWeight: FontWeight.w500),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
     );
   }
@@ -496,7 +671,6 @@ class _SignupScreenState extends State<SignupScreen> {
     final Color primaryColor = const Color(0xFF00A9F1);
     final Color textFieldFillColor = Colors.grey[100]!;
     final Color errorColor = Colors.redAccent[700]!;
-
 
     return DropdownButtonFormField<String>(
       value: value,
@@ -533,7 +707,7 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
         errorStyle: TextStyle(color: errorColor, fontWeight: FontWeight.w500),
         contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 16), // Consistent padding
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
       dropdownColor: Colors.white,
       style: TextStyle(color: Colors.grey[800], fontSize: 16),

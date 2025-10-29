@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-// import 'package:medi_slot/screens/patient/patient.dart'; // Assuming your theme colors might be here or used indirectly
 import 'package:medi_slot/screens/patient/doctor_map_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';

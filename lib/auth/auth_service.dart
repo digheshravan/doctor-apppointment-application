@@ -336,6 +336,150 @@ class AuthService {
     }
   }
 
+  Future<String?> getCurrentAssistantName() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      print('❌ No Supabase user found (not logged in)');
+      return null;
+    }
+
+    print('👤 Current Supabase user ID: ${user.id}');
+
+    try {
+      // Step 1: Fetch assistant record
+      final assistantResponse = await _supabase
+          .from('assistants')
+          .select('assistant_id, user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      print('🧩 Assistant record fetched: $assistantResponse');
+
+      if (assistantResponse == null) {
+        print('⚠️ No assistant record found for this user ID');
+        return null;
+      }
+
+      // Step 2: Fetch the assistant’s name from profiles
+      final profileResponse = await _supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', assistantResponse['user_id'])
+          .maybeSingle();
+
+      print('📇 Profile record fetched: $profileResponse');
+
+      if (profileResponse == null) {
+        print('⚠️ No profile found for user_id: ${assistantResponse['user_id']}');
+        return null;
+      }
+
+      print('✅ Assistant name: ${profileResponse['name']}');
+      return profileResponse['name'] as String?;
+    } catch (e, st) {
+      print('🚨 Error fetching assistant name: $e');
+      print('📜 Stacktrace: $st');
+      return null;
+    }
+  }
+
+  // 🔹 Get Pending Approvals Count
+  Future<int> getPendingApprovalsCountForAssistant() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return 0;
+
+    try {
+      // 1️⃣ Fetch assigned doctor for assistant
+      final assistant = await _supabase
+          .from('assistants')
+          .select('assigned_doctor_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      final doctorId = assistant?['assigned_doctor_id'];
+      if (doctorId == null) return 0;
+
+      // 2️⃣ Get pending appointments list
+      final response = await _supabase
+          .from('appointments')
+          .select('appointment_id')
+          .eq('doctor_id', doctorId)
+          .eq('status', 'pending');
+
+      // 3️⃣ Count manually
+      return response.length;
+    } catch (e) {
+      print('⚠️ Error fetching pending approvals count: $e');
+      return 0;
+    }
+  }
+
+// 🔹 Get Total Patients Count
+  Future<int> getTotalPatientsCountForAssistant() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return 0;
+
+    try {
+      // 1️⃣ Get assigned doctor
+      final assistant = await _supabase
+          .from('assistants')
+          .select('assigned_doctor_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      final doctorId = assistant?['assigned_doctor_id'];
+      if (doctorId == null) return 0;
+
+      // 2️⃣ Fetch all patients for this doctor
+      final response = await _supabase
+          .from('appointments')
+          .select('patient_id')
+          .eq('doctor_id', doctorId);
+
+      // 3️⃣ Get unique patients
+      final uniquePatients =
+          response.map((row) => row['patient_id']).toSet().length;
+
+      return uniquePatients;
+    } catch (e) {
+      print('⚠️ Error fetching total patients count: $e');
+      return 0;
+    }
+  }
+
+// 🔹 Get Today's Appointments Count
+  Future<int> getTodaysAppointmentsCountForAssistant() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return 0;
+
+    try {
+      // 1️⃣ Get assigned doctor
+      final assistant = await _supabase
+          .from('assistants')
+          .select('assigned_doctor_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      final doctorId = assistant?['assigned_doctor_id'];
+      if (doctorId == null) return 0;
+
+      // 2️⃣ Filter by today's date
+      final today = DateTime.now().toIso8601String().split('T')[0];
+
+      final response = await _supabase
+          .from('appointments')
+          .select('appointment_id')
+          .eq('doctor_id', doctorId)
+          .eq('appointment_date', today);
+
+      // 3️⃣ Return total count
+      return response.length;
+    } catch (e) {
+      print('⚠️ Error fetching today’s appointments count: $e');
+      return 0;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   String? get currentUserId => _supabase.auth.currentUser?.id;
 }

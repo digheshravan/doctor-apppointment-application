@@ -21,9 +21,13 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
   List<dynamic> cancelledAppointments = [];
   bool isLoading = true;
 
-  // --- THEME COLORS ---
-  final Color primaryThemeColor = const Color(0xFF2193b0);
-  final Color secondaryThemeColor = const Color(0xFF6dd5ed);
+  // --- THEME COLORS from ProfilesScreen ---
+  static const Color primaryColor = Color(0xFF00AEEF);
+  static const Color backgroundColor = Color(0xFFF8F9FA);
+  static const Color textColor = Color(0xFF333333);
+  static const Color lightTextColor = Color(0xFF757575);
+  static const Color dangerColor = Color(0xFFF44336); // For cancel button
+  // --- End Theme Colors ---
 
   @override
   void initState() {
@@ -46,13 +50,24 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
           .eq('user_id', user.id);
 
       if (patientData.isEmpty) {
-        throw "No patients found";
+        // No patients, so no appointments
+        if (mounted) {
+          setState(() {
+            upcomingAppointments = [];
+            pastAppointments = [];
+            cancelledAppointments = [];
+            isLoading = false;
+          });
+        }
+        return;
       }
 
       final patientIds = patientData.map((p) => p['patient_id']).toList();
 
-      // 2. Fetch all appointments for this user's patients
+      // --- FIX: Re-added patientIdsStr for the .filter() method ---
       final patientIdsStr = patientIds.join(',');
+
+      // 2. Fetch all appointments for this user's patients
       final data = await supabase
           .from('appointments')
           .select('''
@@ -66,6 +81,7 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
       patients(name, age, gender, relation),
       doctors(specialization, profiles(name))
     ''')
+      // --- FIX: Replaced .in_() with the .filter() method ---
           .filter('patient_id', 'in', '($patientIdsStr)')
           .order('appointment_date', ascending: false)
           .order('appointment_time', ascending: false);
@@ -81,11 +97,12 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
         final apptDate = DateTime.parse(appt['appointment_date']);
         final status = (appt['status'] ?? '').toLowerCase();
 
-        if (status == 'cancelled') {
+        if (status == 'cancelled' || status == 'rejected') {
           cancelled.add(appt);
         } else if (apptDate.isBefore(today) || status == 'completed') {
           past.add(appt);
         } else {
+          // Includes 'pending' and 'accepted' for today or future
           upcoming.add(appt);
         }
       }
@@ -114,37 +131,58 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
+        backgroundColor: backgroundColor,
         appBar: AppBar(
-          backgroundColor: Colors.transparent, // remove default color
+          backgroundColor: backgroundColor,
           elevation: 0,
-          flexibleSpace: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [primaryThemeColor, secondaryThemeColor],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          toolbarHeight: 80,
+          title: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.calendar_month_outlined, // Appropriate icon
+                  color: primaryColor,
+                  size: 30,
+                ),
               ),
-            ),
-          ),
-          title: const Padding(
-            padding: EdgeInsets.only(top: 8.0),
-            child: Text(
-              "My Appointments",
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'My Appointments',
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 22,
+                      ),
+                    ),
+                    Text(
+                      'Upcoming, Past & Cancelled',
+                      style: TextStyle(
+                        color: lightTextColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
-          centerTitle: true,
           bottom: const TabBar(
-            indicatorColor: Colors.white,
+            indicatorColor: primaryColor,
             indicatorWeight: 3,
             labelStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             unselectedLabelStyle: TextStyle(fontSize: 16),
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
+            labelColor: textColor,
+            unselectedLabelColor: lightTextColor,
             tabs: [
               Tab(text: "Upcoming"),
               Tab(text: "Past"),
@@ -154,163 +192,113 @@ class _ViewAppointmentsPageState extends State<ViewAppointmentsPage> {
         ),
         body: TabBarView(
           children: [
-            _buildAppointmentList(upcomingAppointments, isUpcoming: true),
-            _buildAppointmentList(pastAppointments, isUpcoming: false),
-            _buildAppointmentList(cancelledAppointments, isUpcoming: false),
+            _buildAppointmentList(upcomingAppointments, tabName: "Upcoming"),
+            _buildAppointmentList(pastAppointments, tabName: "Past"),
+            _buildAppointmentList(cancelledAppointments, tabName: "Cancelled"),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAppointmentList(List<dynamic> appointments, {required bool isUpcoming}) {
+  Widget _buildAppointmentList(List<dynamic> appointments,
+      {required String tabName}) {
     if (isLoading) {
       return _buildShimmerList();
     }
 
     if (appointments.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              isUpcoming
-                  ? "No Upcoming Appointments"
-                  : "No ${isUpcoming == false ? 'Past/Cancelled' : ''} Appointments",
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isUpcoming
-                  ? "You have no scheduled appointments at this time."
-                  : "You have no previous appointment history.",
-              style: const TextStyle(fontSize: 14, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
+      return _buildEmptyState(tabName);
     }
     return RefreshIndicator(
-      onRefresh: fetchAppointments, // reuse the same fetch method
-      color: primaryThemeColor,
+      onRefresh: fetchAppointments,
+      color: primaryColor,
       child: ListView.builder(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         itemCount: appointments.length,
         itemBuilder: (context, index) {
           final appt = appointments[index];
           return _AppointmentCard(
             appointment: appt,
-            onAppointmentCancelled: fetchAppointments, // refresh after cancel
-            themeColor: primaryThemeColor,
+            onAppointmentCancelled: fetchAppointments,
+            primaryColor: primaryColor,
+            textColor: textColor,
+            lightTextColor: lightTextColor,
+            dangerColor: dangerColor,
           );
         },
       ),
     );
   }
 
-  Widget _buildShimmerList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: 5,
-      itemBuilder: (context, index) {
-        return Shimmer.fromColors(
-          baseColor: Colors.grey.shade300,
-          highlightColor: Colors.grey.shade100,
-          child: Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  // --- Header Section ---
-                  Row(
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(26),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(height: 14, width: 120, color: Colors.white, margin: const EdgeInsets.only(bottom: 6)),
-                            Container(height: 12, width: 100, color: Colors.white),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(width: 60, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12))),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
+  Widget _buildEmptyState(String tabName) {
+    String title = "No $tabName Appointments";
+    String subtitle = "You have no $tabName appointments at this time.";
+    if (tabName == "Past") {
+      subtitle = "You have no previous appointment history.";
+    }
 
-                  // --- Info Rows ---
-                  Column(
-                    children: List.generate(4, (i) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          children: [
-                            Container(width: 20, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-                            const SizedBox(width: 16),
-                            Container(width: 70, height: 12, color: Colors.white),
-                            const SizedBox(width: 16),
-                            Expanded(child: Container(height: 12, color: Colors.white)),
-                          ],
-                        ),
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // --- Report / Button Row ---
-                  Row(
-                    children: [
-                      Container(width: 20, height: 20, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-                      const SizedBox(width: 16),
-                      Container(width: 70, height: 12, color: Colors.white),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Container(
-                          height: 30,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.calendar_today_outlined,
+            size: 70,
+            color: Colors.grey[300],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[600],
             ),
           ),
-        );
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShimmerList() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 5,
+      itemBuilder: (context, index) {
+        return const _ShimmerAppointmentCard();
       },
     );
   }
 }
 
-// --- UI WIDGETS ---
-
+// -----------------------------------------------------------------------------
+// Helper Widget: Appointment Card
+// -----------------------------------------------------------------------------
 class _AppointmentCard extends StatelessWidget {
   final Map<String, dynamic> appointment;
-  final Color themeColor;
-
-  // 👇 add this callback
+  final Color primaryColor;
+  final Color textColor;
+  final Color lightTextColor;
+  final Color dangerColor;
   final VoidCallback? onAppointmentCancelled;
 
   const _AppointmentCard({
     required this.appointment,
-    required this.themeColor,
-    this.onAppointmentCancelled, // 👈 now available
+    required this.primaryColor,
+    required this.textColor,
+    required this.lightTextColor,
+    required this.dangerColor,
+    this.onAppointmentCancelled,
   });
 
   String formatDate(String date) =>
@@ -323,13 +311,13 @@ class _AppointmentCard extends StatelessWidget {
     switch (status.toLowerCase()) {
       case "pending":
         return Colors.orange.shade700;
-      case "approved":
+      case "accepted": // Changed from 'approved' to 'accepted'
         return Colors.green.shade700;
       case "rejected":
       case "cancelled":
-        return Colors.red.shade700;
+        return dangerColor;
       default:
-        return Colors.grey.shade700;
+        return lightTextColor;
     }
   }
 
@@ -427,29 +415,31 @@ class _AppointmentCard extends StatelessWidget {
     final patient = appointment['patients'] ?? {};
     final doctor = appointment['doctors'] ?? {};
     final doctorProfile = doctor['profiles'] ?? {};
-    final status = appointment['status'] ?? 'unknown';
+    final status = (appointment['status'] ?? 'unknown').toLowerCase();
     final reportUrl = appointment['report_url'];
 
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 5,
-      shadowColor: Colors.black.withOpacity(0.1),
-      margin: const EdgeInsets.symmetric(vertical: 8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // --- Header Section ---
           Container(
             padding: const EdgeInsets.all(16),
-            color: themeColor.withOpacity(0.05),
+            color: primaryColor.withOpacity(0.05),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 26,
-                  backgroundColor: themeColor.withOpacity(0.15),
+                  backgroundColor: primaryColor.withOpacity(0.15),
                   child: Icon(Icons.medical_services_outlined,
-                      color: themeColor, size: 28),
+                      color: primaryColor, size: 28),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -460,16 +450,15 @@ class _AppointmentCard extends StatelessWidget {
                         doctorProfile['name'] != null
                             ? "Dr. ${doctorProfile['name']}"
                             : 'Unknown Doctor',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 18,
-                            color: Colors.black87),
+                            color: textColor),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         doctor['specialization'] ?? 'No specialization',
-                        style: TextStyle(
-                            color: Colors.grey.shade700, fontSize: 14),
+                        style: TextStyle(color: lightTextColor, fontSize: 14),
                       ),
                     ],
                   ),
@@ -506,9 +495,7 @@ class _AppointmentCard extends StatelessWidget {
                     appointment['reason'] ?? 'No reason provided'),
                 const Divider(height: 24),
                 _buildReportRow(context, reportUrl),
-
-                // --- Cancel Button ---
-                if (status.toLowerCase() != 'cancelled')
+                if (status == 'pending' || status == 'accepted')
                   Padding(
                     padding: const EdgeInsets.only(top: 12.0),
                     child: SizedBox(
@@ -519,7 +506,7 @@ class _AppointmentCard extends StatelessWidget {
                         icon: const Icon(Icons.cancel_outlined),
                         label: const Text("Cancel Appointment"),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.shade600,
+                          backgroundColor: dangerColor,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -542,20 +529,18 @@ class _AppointmentCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.grey.shade500, size: 20),
+          Icon(icon, color: lightTextColor, size: 20),
           const SizedBox(width: 16),
           SizedBox(
             width: 70,
             child: Text("$label:",
                 style: TextStyle(
-                    color: Colors.grey.shade700,
-                    fontWeight: FontWeight.w500)),
+                    color: lightTextColor, fontWeight: FontWeight.w500)),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: Colors.black87),
+              style: TextStyle(fontWeight: FontWeight.w600, color: textColor),
             ),
           ),
         ],
@@ -567,14 +552,13 @@ class _AppointmentCard extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(Icons.attach_file, color: Colors.grey.shade500, size: 20),
+        Icon(Icons.attach_file, color: lightTextColor, size: 20),
         const SizedBox(width: 16),
         SizedBox(
           width: 70,
           child: Text("Report:",
               style: TextStyle(
-                  color: Colors.grey.shade700,
-                  fontWeight: FontWeight.w500)),
+                  color: lightTextColor, fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: reportUrl != null
@@ -585,27 +569,116 @@ class _AppointmentCard extends StatelessWidget {
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 6),
-                backgroundColor: themeColor.withOpacity(0.1),
+                backgroundColor: primaryColor.withOpacity(0.1),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
               ),
               child: Text(
                 "View Attachment",
                 style: TextStyle(
-                    color: themeColor, fontWeight: FontWeight.bold),
+                    color: primaryColor, fontWeight: FontWeight.bold),
               ),
             ),
           )
-              : const Text(
+              : Text(
             "No attachment",
             style: TextStyle(
               fontWeight: FontWeight.w500,
-              color: Colors.black54,
+              color: lightTextColor,
               fontStyle: FontStyle.italic,
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Helper Widget: Shimmer Card
+// -----------------------------------------------------------------------------
+class _ShimmerAppointmentCard extends StatelessWidget {
+  const _ShimmerAppointmentCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Colors.white.withOpacity(0.5),
+              child: Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                            height: 18,
+                            width: 150,
+                            color: Colors.white,
+                            margin: const EdgeInsets.only(bottom: 6)),
+                        Container(height: 14, width: 100, color: Colors.white),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                      width: 60,
+                      height: 24,
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12))),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: List.generate(4, (i) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(4))),
+                        const SizedBox(width: 16),
+                        Container(width: 70, height: 14, color: Colors.white),
+                        const SizedBox(width: 16),
+                        Expanded(
+                            child: Container(height: 14, color: Colors.white)),
+                      ],
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

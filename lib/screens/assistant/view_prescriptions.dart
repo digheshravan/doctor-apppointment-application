@@ -1,21 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:medi_slot/screens/doctor/write_prescription_screen.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
+import 'package:medi_slot/screens/assistant/write_prescription_assistant.dart';
 
 // -----------------------------------------------------------------------------
-// Prescriptions Screen
+// Prescriptions Screen for Assistant
 // -----------------------------------------------------------------------------
-class PrescriptionsScreen extends StatefulWidget {
-  final VoidCallback? onAddPressed;
-
-  const PrescriptionsScreen({super.key, this.onAddPressed});
+class AssistantPrescriptionsScreen extends StatefulWidget {
+  const AssistantPrescriptionsScreen({super.key});
 
   @override
-  State<PrescriptionsScreen> createState() => _PrescriptionsScreenState();
+  State<AssistantPrescriptionsScreen> createState() =>
+      _AssistantPrescriptionsScreenState();
 }
 
-class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
+class _AssistantPrescriptionsScreenState
+    extends State<AssistantPrescriptionsScreen> {
+  // --- UI Colors from Theme ---
+  static const Color primaryColor = Color(0xFF00AEEF); // Main blue
+  static const Color accentColor = Color(0xFF4CAF50); // Green
+  static const Color backgroundColor = Color(0xFFF8F9FA); // Off-white
+  static const Color textColor = Color(0xFF333333);
+  static const Color lightTextColor = Color(0xFF757575);
+  // --- End Theme Colors ---
+
   final _supabase = Supabase.instance.client;
   List<Map<String, dynamic>> _prescriptions = [];
   bool _isLoading = true;
@@ -29,6 +38,7 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
     _fetchPrescriptions();
   }
 
+  // --- All backend logic is unchanged ---
   Future<void> _fetchPrescriptions() async {
     setState(() {
       _isLoading = true;
@@ -36,22 +46,26 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
     });
 
     try {
-      // Get current doctor's ID from auth
+      // Get current assistant's user ID from auth
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
         throw Exception('User not authenticated');
       }
 
-      // Fetch doctor_id from doctors table
-      final doctorData = await _supabase
-          .from('doctors')
-          .select('doctor_id')
+      // Fetch assistant_id from assistants table
+      final assistantData = await _supabase
+          .from('assistants')
+          .select('assistant_id, assigned_doctor_id')
           .eq('user_id', userId)
           .single();
 
-      final doctorId = doctorData['doctor_id'];
+      final assignedDoctorId = assistantData['assigned_doctor_id'];
 
-      // Fetch prescriptions with related data
+      if (assignedDoctorId == null) {
+        throw Exception('No doctor assigned to this assistant');
+      }
+
+      // Fetch prescriptions with related data for the assigned doctor
       final prescriptionsData = await _supabase
           .from('prescriptions')
           .select('''
@@ -71,7 +85,7 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
               visit_status
             )
           ''')
-          .eq('doctor_id', doctorId)
+          .eq('doctor_id', assignedDoctorId)
           .order('date', ascending: false);
 
       // Fetch medicines for each prescription
@@ -103,7 +117,8 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
         } else if (difference < 7) {
           dateLabel = '$difference days ago';
         } else {
-          dateLabel = '${prescriptionDate.day}/${prescriptionDate.month}/${prescriptionDate.year}';
+          dateLabel =
+          '${prescriptionDate.day}/${prescriptionDate.month}/${prescriptionDate.year}';
         }
 
         // Format medicines list
@@ -129,7 +144,8 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
       // Calculate stats
       _totalIssued = prescriptionsWithMedicines.length;
       _thisWeek = prescriptionsWithMedicines.where((rx) {
-        final diff = DateTime.now().difference(rx['raw_date'] as DateTime).inDays;
+        final diff =
+            DateTime.now().difference(rx['raw_date'] as DateTime).inDays;
         return diff <= 7;
       }).length;
 
@@ -144,165 +160,210 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen> {
       });
     }
   }
+  // --- End of backend logic ---
+
+  // Navigate to write prescription screen
+  void _navigateToWritePrescription() async {
+    // Navigate to the write prescription screen
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AssistantWritePrescriptionScreen(
+          patient: {}, // Empty patient data - user will select from dropdown
+        ),
+      ),
+    );
+
+    // Refresh the list if a prescription was saved
+    if (result == true) {
+      _fetchPrescriptions();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: _fetchPrescriptions,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    // --- UI ENHANCEMENT: Added Scaffold and standard AppBar ---
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        backgroundColor: backgroundColor,
+        elevation: 0,
+        toolbarHeight: 80,
+        title: Row(
           children: [
-            // 🔹 Header with Add Button
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Prescriptions",
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      "Manage digital prescriptions",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-                InkWell(
-                  onTap: () {
-                    if (widget.onAddPressed != null) {
-                      widget.onAddPressed!(); // 🔥 trigger the callback
-                    }
-                  },
-                  borderRadius: BorderRadius.circular(28),
-                  child: CircleAvatar(
-                    radius: 28,
-                    backgroundColor: Colors.blue.shade700,
-                    child: const Icon(
-                      Icons.add,
-                      color: Colors.white,
-                      size: 30,
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.description_outlined,
+                  color: primaryColor, size: 30),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Prescriptions',
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
                     ),
                   ),
-                ),
-              ],
+                  Text(
+                    'View all prescriptions',
+                    style: TextStyle(
+                      color: lightTextColor,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
-
-            // 🔹 Loading/Error/Content States
-            if (_isLoading)
-              Column(
-                children: List.generate(4, (index) => _ShimmerPrescriptionCard()),
-              )
-            else if (_error != null)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(40.0),
-                  child: Column(
+            // 🔥 Updated: Add button now navigates to write prescription screen
+            InkWell(
+              onTap: _navigateToWritePrescription,
+              borderRadius: BorderRadius.circular(28),
+              child: CircleAvatar(
+                radius: 28,
+                backgroundColor: primaryColor,
+                child: const Icon(
+                  Icons.add,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _fetchPrescriptions,
+        color: primaryColor,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 🔹 Loading/Error/Content States
+              if (_isLoading)
+                Column(
+                  children:
+                  List.generate(4, (index) => _ShimmerPrescriptionCard()),
+                )
+              else if (_error != null)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(40.0),
+                    child: Column(
+                      children: [
+                        Icon(Icons.error_outline,
+                            size: 48, color: Colors.red.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Error loading prescriptions',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: lightTextColor,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _error!,
+                          style: TextStyle(fontSize: 14, color: lightTextColor),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _fetchPrescriptions,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else ...[
+                  // 🔹 Stat Cards
+                  Row(
                     children: [
-                      Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Error loading prescriptions',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade700,
+                      Expanded(
+                        child: _PrescriptionStatCard(
+                          count: _totalIssued.toString(),
+                          label: "Total Issued",
+                          icon: Icons.article_outlined,
+                          color: Colors.blue,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _error!,
-                        style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _fetchPrescriptions,
-                        child: const Text('Retry'),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _PrescriptionStatCard(
+                          count: _thisWeek.toString(),
+                          label: "This Week",
+                          icon: Icons.calendar_today_outlined,
+                          color: Colors.green,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              )
-            else ...[
-                // 🔹 Stat Cards
-                Row(
-                  children: [
-                    Expanded(
-                      child: _PrescriptionStatCard(
-                        count: _totalIssued.toString(),
-                        label: "Total Issued",
-                        icon: Icons.article_outlined,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: _PrescriptionStatCard(
-                        count: _thisWeek.toString(),
-                        label: "This Week",
-                        icon: Icons.calendar_today_outlined,
-                        color: Colors.green,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-                // 🔹 Prescription List
-                if (_prescriptions.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(40.0),
-                      child: Column(
-                        children: [
-                          Icon(Icons.description_outlined,
-                              size: 64, color: Colors.grey.shade300),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No prescriptions yet',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600,
+                  // 🔹 Prescription List
+                  if (_prescriptions.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(40.0),
+                        child: Column(
+                          children: [
+                            Icon(Icons.description_outlined,
+                                size: 64, color: Colors.grey.shade300),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No prescriptions yet',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: lightTextColor,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Prescriptions you create will appear here',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade500,
+                            const SizedBox(height: 8),
+                            Text(
+                              'Prescriptions will appear here',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: lightTextColor,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                    )
+                  else
+                    Column(
+                      children: _prescriptions
+                          .map((rx) => _PrescriptionListCard(
+                        rx: rx,
+                        primaryColor: primaryColor,
+                        textColor: textColor,
+                        lightTextColor: lightTextColor,
+                        accentColor: accentColor,
+                      ))
+                          .toList(),
                     ),
-                  )
-                else
-                  Column(
-                    children: _prescriptions
-                        .map((rx) => _PrescriptionListCard(rx: rx))
-                        .toList(),
-                  ),
-              ],
+                ],
 
-            const SizedBox(height: 80), // Extra space for nav bar
-          ],
+              const SizedBox(height: 80), // Extra space for nav bar
+            ],
+          ),
         ),
       ),
     );
@@ -371,8 +432,18 @@ class _PrescriptionStatCard extends StatelessWidget {
 // -----------------------------------------------------------------------------
 class _PrescriptionListCard extends StatelessWidget {
   final Map<String, dynamic> rx;
+  final Color primaryColor;
+  final Color textColor;
+  final Color lightTextColor;
+  final Color accentColor;
 
-  const _PrescriptionListCard({required this.rx});
+  const _PrescriptionListCard({
+    required this.rx,
+    required this.primaryColor,
+    required this.textColor,
+    required this.lightTextColor,
+    required this.accentColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -393,10 +464,10 @@ class _PrescriptionListCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: Colors.blue.shade50,
+                backgroundColor: primaryColor.withOpacity(0.1),
                 child: Icon(
                   Icons.person_outline_rounded,
-                  color: Colors.blue.shade700,
+                  color: primaryColor,
                   size: 24,
                 ),
               ),
@@ -407,23 +478,23 @@ class _PrescriptionListCard extends StatelessWidget {
                   children: [
                     Text(
                       rx['name'],
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w600,
-                        color: Colors.black87,
+                        color: textColor,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
                         Icon(Icons.calendar_today_outlined,
-                            size: 14, color: Colors.grey.shade600),
+                            size: 14, color: lightTextColor),
                         const SizedBox(width: 4),
                         Text(
                           rx['date'],
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey.shade600,
+                            color: lightTextColor,
                           ),
                         ),
                       ],
@@ -431,7 +502,11 @@ class _PrescriptionListCard extends StatelessWidget {
                   ],
                 ),
               ),
-              _StatusTag(status: rx['status']),
+              _StatusTag(
+                status: rx['status'],
+                primaryColor: primaryColor,
+                accentColor: accentColor,
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -440,11 +515,10 @@ class _PrescriptionListCard extends StatelessWidget {
             "Diagnosis",
             Text(
               rx['diagnosis'],
-              style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black87),
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w500, color: textColor),
             ),
+            lightTextColor,
           ),
           const SizedBox(height: 16),
           // 🔹 Medicines
@@ -455,7 +529,7 @@ class _PrescriptionListCard extends StatelessWidget {
               'No medicines prescribed',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey.shade600,
+                color: lightTextColor,
                 fontStyle: FontStyle.italic,
               ),
             )
@@ -463,9 +537,14 @@ class _PrescriptionListCard extends StatelessWidget {
               spacing: 8.0,
               runSpacing: 8.0,
               children: (rx['medicines'] as List<String>)
-                  .map((med) => _MedicineChip(label: med))
+                  .map((med) => _MedicineChip(
+                label: med,
+                textColor: textColor,
+                lightTextColor: lightTextColor,
+              ))
                   .toList(),
             ),
+            lightTextColor,
           ),
           const SizedBox(height: 16),
           const Divider(),
@@ -477,6 +556,8 @@ class _PrescriptionListCard extends StatelessWidget {
                 child: _buildActionButton(
                   icon: Icons.download_outlined,
                   label: "Download",
+                  textColor: textColor,
+                  lightTextColor: lightTextColor,
                 ),
               ),
               const SizedBox(width: 12),
@@ -484,6 +565,8 @@ class _PrescriptionListCard extends StatelessWidget {
                 child: _buildActionButton(
                   icon: Icons.share_outlined,
                   label: "Share",
+                  textColor: textColor,
+                  lightTextColor: lightTextColor,
                 ),
               ),
             ],
@@ -493,8 +576,8 @@ class _PrescriptionListCard extends StatelessWidget {
     );
   }
 
-  // Helper for "Diagnosis" and "Medicines" sections
-  Widget _buildDetailSection(String title, Widget content) {
+  Widget _buildDetailSection(
+      String title, Widget content, Color lightTextColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -503,7 +586,7 @@ class _PrescriptionListCard extends StatelessWidget {
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,
-            color: Colors.grey.shade500,
+            color: lightTextColor,
           ),
         ),
         const SizedBox(height: 6),
@@ -512,24 +595,27 @@ class _PrescriptionListCard extends StatelessWidget {
     );
   }
 
-  // Helper for "Download" and "Share" buttons
-  Widget _buildActionButton({required IconData icon, required String label}) {
+  Widget _buildActionButton(
+      {required IconData icon,
+        required String label,
+        required Color textColor,
+        required Color lightTextColor}) {
     return OutlinedButton.icon(
       onPressed: () {
         // TODO: Implement action
       },
-      icon: Icon(icon, size: 20, color: Colors.grey.shade700),
+      icon: Icon(icon, size: 20, color: lightTextColor),
       label: Text(
         label,
         style: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w600,
-          color: Colors.grey.shade800,
+          color: textColor,
         ),
       ),
       style: OutlinedButton.styleFrom(
         backgroundColor: Colors.grey.shade50,
-        foregroundColor: Colors.grey.shade700,
+        foregroundColor: lightTextColor,
         side: BorderSide(color: Colors.grey.shade300),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
@@ -545,7 +631,13 @@ class _PrescriptionListCard extends StatelessWidget {
 // -----------------------------------------------------------------------------
 class _MedicineChip extends StatelessWidget {
   final String label;
-  const _MedicineChip({required this.label});
+  final Color textColor;
+  final Color lightTextColor;
+
+  const _MedicineChip(
+      {required this.label,
+        required this.textColor,
+        required this.lightTextColor});
 
   @override
   Widget build(BuildContext context) {
@@ -558,12 +650,12 @@ class _MedicineChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.medication_outlined, size: 16, color: Colors.grey.shade600),
+          Icon(Icons.medication_outlined, size: 16, color: lightTextColor),
           const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
-              color: Colors.grey.shade800,
+              color: textColor,
               fontWeight: FontWeight.w500,
               fontSize: 13,
             ),
@@ -579,13 +671,20 @@ class _MedicineChip extends StatelessWidget {
 // -----------------------------------------------------------------------------
 class _StatusTag extends StatelessWidget {
   final String status;
-  const _StatusTag({required this.status});
+  final Color primaryColor;
+  final Color accentColor;
+
+  const _StatusTag(
+      {required this.status,
+        required this.primaryColor,
+        required this.accentColor});
 
   @override
   Widget build(BuildContext context) {
-    final bool isActive = status == 'Active';
-    final Color color = isActive ? Colors.blue.shade800 : Colors.green.shade800;
-    final Color bgColor = isActive ? Colors.blue.shade50 : Colors.green.shade50;
+    final bool isActive = status == 'active';
+    final Color color = isActive ? primaryColor : accentColor;
+    final Color bgColor =
+    isActive ? primaryColor.withOpacity(0.1) : accentColor.withOpacity(0.1);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -604,6 +703,7 @@ class _StatusTag extends StatelessWidget {
     );
   }
 }
+
 // -----------------------------------------------------------------------------
 // Shimmer Loading Placeholder for Prescription Card
 // -----------------------------------------------------------------------------
@@ -623,7 +723,6 @@ class _ShimmerPrescriptionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top row (avatar + name + status)
             Row(
               children: [
                 Container(
@@ -664,14 +763,12 @@ class _ShimmerPrescriptionCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 20),
-            // Diagnosis line
             Container(
               height: 12,
               width: double.infinity,
               color: Colors.grey.shade300,
             ),
             const SizedBox(height: 12),
-            // Medicines placeholders
             Row(
               children: [
                 Container(
@@ -688,7 +785,6 @@ class _ShimmerPrescriptionCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            // Buttons row
             Row(
               children: [
                 Expanded(
