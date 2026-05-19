@@ -5,8 +5,6 @@ import 'package:medi_slot/screens/assistant/assistant_home.dart';
 import 'package:medi_slot/screens/doctor/doctor_home.dart';
 import 'package:medi_slot/screens/patient/patient.dart';
 import 'package:medi_slot/screens/signup_screen.dart';
-// Note: You may not need SharedPreferences here if AuthService handles session
-// import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -63,7 +61,6 @@ class _LoginScreenState extends State<LoginScreen> {
           nextScreen = const AdminDashboard();
           break;
         case 'doctor':
-        // FIXME: You need to fetch the doctorId associated with this userId
         // This navigation might fail if doctorId is required and not 'admin'
         // For now, passing a placeholder. You must fix this logic.
           nextScreen = const DoctorDashboard(

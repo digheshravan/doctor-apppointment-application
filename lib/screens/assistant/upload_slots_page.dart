@@ -375,9 +375,10 @@ class _UploadSlotsPageState extends State<UploadSlotsPage> {
                     color: Colors.white,
                   ),
                 )
-                    : const Icon(Icons.search, color: Colors.white),
+                    : const Icon(Icons.search),
                 label: const Text("View"),
                 style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
                   backgroundColor: accentColor, // Use theme color
                   padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
                   shape: RoundedRectangleBorder(

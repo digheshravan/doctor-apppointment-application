@@ -64,7 +64,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
       }
     }
 
-    // ✅ Always fetch today’s appointments (even if patient was passed)
+    // ✅ Always fetch today's appointments (even if patient was passed)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchTodayAppointments();
     });
@@ -351,33 +351,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                 icon: Icons.person_outline_rounded,
                 children: [
                   _buildLabel("Patient Name"),
-                  _buildDropdownField(
-                    _isLoading ? "Loading..." : "Select patient",
-                    items: _todayAppointments.map<String>((a) {
-                      return a['patients']['name'] ?? 'Unknown';
-                    }).toList(),
-                    onChanged: (value) {
-                      final selected = _todayAppointments.firstWhere(
-                            (a) => a['patients']['name'] == value,
-                        orElse: () => {},
-                      );
-                      if (selected.isNotEmpty) {
-                        setState(() {
-                          _patientNameController.text = selected['patients']['name'] ?? '';
-                          _ageController.text = selected['patients']['age']?.toString() ?? '';
-                          _selectedGender = selected['patients']['gender'] ?? '';
-                          _selectedPatient = {
-                            "name": selected['patients']['name'],
-                            "age": selected['patients']['age'],
-                            "gender": selected['patients']['gender'],
-                            "patient_id": selected['patients']['patient_id'],
-                            "appointment_id": selected['appointment_id'],
-                          };
-                        });
-                      }
-                    },
-                    value: _selectedPatient?['name'],
-                  ),
+                  _buildPatientDropdown(),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -388,11 +362,11 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                             _buildLabel("Age"),
                             TextField(
                               controller: _ageController,
-                              readOnly: true, // ✅ make it non-editable
+                              readOnly: true,
                               decoration: InputDecoration(
                                 hintText: "Age",
                                 filled: true,
-                                fillColor: Colors.grey.shade100, // optional: visually indicate read-only
+                                fillColor: Colors.grey.shade100,
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
                                   borderSide: BorderSide.none,
@@ -412,7 +386,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                             _buildLabel("Gender"),
                             TextField(
                               controller: TextEditingController(text: _selectedGender ?? ''),
-                              readOnly: true, // ✅ make it non-editable
+                              readOnly: true,
                               decoration: InputDecoration(
                                 hintText: "Select",
                                 filled: true,
@@ -434,7 +408,7 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                   _buildLabel("Date"),
                   TextField(
                     controller: _dateController,
-                    readOnly: true, // always non-editable
+                    readOnly: true,
                     decoration: InputDecoration(
                       hintText: "dd-MM-yyyy",
                       filled: true,
@@ -805,6 +779,59 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           borderSide: BorderSide.none,
         ),
         suffixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
+  }
+
+  // Custom patient dropdown to handle unique keys
+  Widget _buildPatientDropdown() {
+    return DropdownButtonFormField<String>(
+      isExpanded: true,
+      value: _selectedPatient != null ? _selectedPatient!['appointment_id']?.toString() : null,
+      hint: Text(
+        _isLoading ? "Loading..." : "Select patient",
+        style: TextStyle(color: Colors.grey.shade500),
+      ),
+      onChanged: (value) {
+        if (value == null) return;
+
+        final selected = _todayAppointments.firstWhere(
+              (a) => a['appointment_id'].toString() == value,
+          orElse: () => {},
+        );
+
+        if (selected.isNotEmpty) {
+          setState(() {
+            _patientNameController.text = selected['patients']['name'] ?? '';
+            _ageController.text = selected['patients']['age']?.toString() ?? '';
+            _selectedGender = selected['patients']['gender'] ?? '';
+            _selectedPatient = {
+              "name": selected['patients']['name'],
+              "age": selected['patients']['age'],
+              "gender": selected['patients']['gender'],
+              "patient_id": selected['patients']['patient_id'],
+              "appointment_id": selected['appointment_id'],
+            };
+          });
+        }
+      },
+      items: _todayAppointments.map<DropdownMenuItem<String>>((appointment) {
+        final patientName = appointment['patients']['name'] ?? 'Unknown';
+        final appointmentId = appointment['appointment_id'].toString();
+
+        return DropdownMenuItem<String>(
+          value: appointmentId,
+          child: Text(patientName),
+        );
+      }).toList(),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );

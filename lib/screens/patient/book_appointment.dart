@@ -8,7 +8,6 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-
 import '../../auth/auth_service.dart';
 
 class BookAppointmentPage extends StatefulWidget {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:medi_slot/screens/assistant/write_prescription_assistant.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -220,8 +221,22 @@ class _CheckInScreenState extends State<CheckInScreen> {
               return _PatientListCard(
                 patient: patientData,
                 onWritePrescription: (p) {
-                  // TODO: Implement navigation to prescription screen
-                  print("Write prescription for: ${p['name']}");
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AssistantWritePrescriptionScreen(
+                        patient: {
+                          'name': p['name'],
+                          'age': p['age'],
+                          'gender': p['gender'],
+                          'patient_id': p['patient_id'],
+                          'appointment_id': p['appointment_id'],
+                        },
+                      ),
+                    ),
+                  ).then((_) {
+                    _fetchAppointments(_currentFilter);
+                  });
                 },
                 onRefresh: () {
                   _fetchAppointments(_currentFilter);

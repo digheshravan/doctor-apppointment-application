@@ -36,7 +36,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   void refreshPage() {
     setState(() {
-      _refreshKey = UniqueKey(); // 🔄 this forces the whole widget to rebuild
+      _refreshKey = UniqueKey();
     });
   }
 
@@ -52,21 +52,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
         _loadMore();
       }
     });
-    // Initialize _pages with a placeholder or loading state for the home page initially
     _pages = [
-      _buildLoadingHomePage(), // Or a simple Center(child: CircularProgressIndicator())
-      // MODIFIED: Use 'preselectedDoctor' to match BookAppointmentPage constructor
+      _buildLoadingHomePage(),
       BookAppointmentPage(key: const ValueKey('initial_bap'), preselectedDoctor: selectedDoctor), // selectedDoctor is likely null here
       const ViewAppointmentsPage(),
       DoctorListPage(),
       const ProfilesScreen(),
     ];
     fetchUserNameAndInitializePages();
-    // fetchDoctors(); // _loadDoctors calls fetchDoctors, so this might be redundant unless intended.
-    // If _loadDoctors already sets the initial list, you might not need this second call here.
-    // However, if fetchDoctors in initState has a different purpose (e.g., non-paginated initial small set)
-    // and _loadDoctors is for pagination, then it's fine. Review based on your logic.
-    // For now, I'll keep it as it was in your snippet.
     fetchDoctors();
   }
 
@@ -170,7 +163,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 
 
-  // UNMODIFIED fetchUserName - kept for reference if you prefer the old way, but fetchUserNameAndInitializePages is now primary
+  // fetchUserName
   Future<void> fetchUserName() async {
     try {
       final user = supabase.auth.currentUser;
@@ -219,33 +212,23 @@ class _PatientDashboardState extends State<PatientDashboard> {
       final String? doctorId = selected['doctorId'] as String?;
       final String? doctorName = selected['doctorName'] as String?; // Using 'doctorName' from DoctorMapPage
       final String? specialization = selected['specialization'] as String?;
-      // final String? clinicName = selected['clinicName'] as String?;
-      // final String? address = selected['address'] as String?;
-      // final String? clinicId = selected['clinic_id'] as String?;
 
-      // *** PREPARING DATA FOR BookAppointmentPage ***
-      // Decide what key BookAppointmentPage will use for the doctor's name.
-      // Let's assume BookAppointmentPage expects 'name'.
       final Map<String, dynamic> doctorDataForBookingPage = {
         'doctor_id': selected['doctorId'],
         'name': selected['doctorName'], // Assuming this is how it comes from map
         'specialization': selected['specialization'],
-        // 'clinicName': selected['clinicName'],
-        // 'address': selected['address'],
       };
       debugPrint("PatientDashboard: Data prepared for BookAppointmentPage: $doctorDataForBookingPage");
 
       setState(() {
         _pages[1] = BookAppointmentPage(
-          // IMPORTANT: Create a new key. Using the doctorId ensures it's unique per doctor,
-          // or use DateTime.now().millisecondsSinceEpoch if doctorId could be null or not unique enough.
             key: ValueKey(doctorDataForBookingPage['doctor_id'] ?? DateTime.now().toIso8601String()),
             preselectedDoctor: doctorDataForBookingPage
         );
 
         debugPrint("PatientDashboard: Updated _pages[1] to new BookAppointmentPage instance (Hash: ${_pages[1].hashCode}, Key: ${_pages[1].key})");
 
-        _page = 1; // Switch to the BookAppointmentPage tab
+        _page = 1;
       });
     } else {
       debugPrint("PatientDashboard: No data received from DoctorMapPage.");

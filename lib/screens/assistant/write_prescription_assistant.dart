@@ -303,6 +303,18 @@ class _AssistantWritePrescriptionScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Write Prescription',
+          style: TextStyle(color: Colors.black87),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
@@ -350,35 +362,7 @@ class _AssistantWritePrescriptionScreenState
                 icon: Icons.person_outline_rounded,
                 children: [
                   _buildLabel("Patient Name"),
-                  _buildDropdownField(
-                    _isLoading ? "Loading..." : "Select patient",
-                    items: _todayAppointments.map<String>((a) {
-                      return a['patients']['name'] ?? 'Unknown';
-                    }).toList(),
-                    onChanged: (value) {
-                      final selected = _todayAppointments.firstWhere(
-                            (a) => a['patients']['name'] == value,
-                        orElse: () => {},
-                      );
-                      if (selected.isNotEmpty) {
-                        setState(() {
-                          _patientNameController.text =
-                              selected['patients']['name'] ?? '';
-                          _ageController.text =
-                              selected['patients']['age']?.toString() ?? '';
-                          _selectedGender = selected['patients']['gender'] ?? '';
-                          _selectedPatient = {
-                            "name": selected['patients']['name'],
-                            "age": selected['patients']['age'],
-                            "gender": selected['patients']['gender'],
-                            "patient_id": selected['patients']['patient_id'],
-                            "appointment_id": selected['appointment_id'],
-                          };
-                        });
-                      }
-                    },
-                    value: _selectedPatient?['name'],
-                  ),
+                  _buildPatientDropdown(),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -819,6 +803,59 @@ class _AssistantWritePrescriptionScreenState
         suffixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
         contentPadding:
         const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
+  }
+
+  // Custom patient dropdown to handle unique keys
+  Widget _buildPatientDropdown() {
+    return DropdownButtonFormField<String>(
+      isExpanded: true,
+      value: _selectedPatient != null ? _selectedPatient!['appointment_id']?.toString() : null,
+      hint: Text(
+        _isLoading ? "Loading..." : "Select patient",
+        style: TextStyle(color: Colors.grey.shade500),
+      ),
+      onChanged: (value) {
+        if (value == null) return;
+
+        final selected = _todayAppointments.firstWhere(
+              (a) => a['appointment_id'].toString() == value,
+          orElse: () => {},
+        );
+
+        if (selected.isNotEmpty) {
+          setState(() {
+            _patientNameController.text = selected['patients']['name'] ?? '';
+            _ageController.text = selected['patients']['age']?.toString() ?? '';
+            _selectedGender = selected['patients']['gender'] ?? '';
+            _selectedPatient = {
+              "name": selected['patients']['name'],
+              "age": selected['patients']['age'],
+              "gender": selected['patients']['gender'],
+              "patient_id": selected['patients']['patient_id'],
+              "appointment_id": selected['appointment_id'],
+            };
+          });
+        }
+      },
+      items: _todayAppointments.map<DropdownMenuItem<String>>((appointment) {
+        final patientName = appointment['patients']['name'] ?? 'Unknown';
+        final appointmentId = appointment['appointment_id'].toString();
+
+        return DropdownMenuItem<String>(
+          value: appointmentId,
+          child: Text(patientName),
+        );
+      }).toList(),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
