@@ -127,6 +127,10 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
 
     try {
       final currentDoctorId = doctorId ?? widget.doctorId;
+      if (currentDoctorId.isEmpty) {
+        setState(() => isLoading = false);
+        return;
+      }
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
       // 1. Today's booked appointments
@@ -598,11 +602,12 @@ class _AppointmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     Color statusColor;
     Color statusBgColor;
+    final normalizedStatus = status.toLowerCase();
 
-    if (status == 'Confirmed') {
+    if (normalizedStatus == 'confirmed' || normalizedStatus == 'accepted') {
       statusColor = Colors.green.shade800;
       statusBgColor = Colors.green.shade50;
-    } else if (status == 'Pending') {
+    } else if (normalizedStatus == 'pending') {
       statusColor = Colors.orange.shade800;
       statusBgColor = Colors.orange.shade50;
     } else {

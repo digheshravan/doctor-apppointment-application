@@ -324,7 +324,7 @@ class AuthService {
     try {
       final response = await _supabase
           .from('doctors')
-          .select('doctor_id, user_id, specialization, experience_years, status, photo_url, qualification, consultation_fee, profiles(id, name, email)')
+          .select('doctor_id, user_id, phone, gender, specialization, experience_years, status, photo_url, qualification, consultation_fee, profiles(id, name, email)')
           .eq('status', 'approved');
 
       if (response == null || response is! List) return [];

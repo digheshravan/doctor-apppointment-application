@@ -239,6 +239,10 @@ class _DoctorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final photoUrl = doctor["photo_url"] as String?;
+    final experienceYears =
+        doctor["experience_years"] ?? doctor["years_of_experience"] ?? 0;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12), // Use margin from reference
       padding: const EdgeInsets.all(16), // Use padding from reference
@@ -255,13 +259,13 @@ class _DoctorCard extends StatelessWidget {
             child: CircleAvatar(
               radius: 30,
               backgroundColor: Colors.grey[200],
-              backgroundImage: doctor["image_url"] != null &&
-                  doctor["image_url"].isNotEmpty
+              backgroundImage: photoUrl != null &&
+                  photoUrl.isNotEmpty
                   ? NetworkImage(
-                doctor["image_url"],
+                photoUrl,
               )
                   : null,
-              child: doctor["image_url"] == null
+              child: photoUrl == null || photoUrl.isEmpty
                   ? Icon(Icons.person, size: 40, color: Colors.grey[600])
                   : null,
             ),
@@ -276,7 +280,7 @@ class _DoctorCard extends StatelessWidget {
                 Text("Consultant, ${doctor["specialization"] ?? ""}",
                     style: doctorSpecialtyStyle),
                 const SizedBox(height: 2),
-                Text("Experience: ${doctor["years_of_experience"] ?? 0} years",
+                Text("Experience: $experienceYears years",
                     style: doctorQualificationStyle),
                 const SizedBox(height: 8),
                 SizedBox(

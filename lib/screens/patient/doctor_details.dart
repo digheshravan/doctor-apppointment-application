@@ -56,10 +56,13 @@ class _DoctorDetailsPageState extends State<DoctorDetailsPage> {
     final doctorSpecialty =
         widget.doctor["specialization"] ?? "Not available";
     final doctorExperience =
-        widget.doctor["years_of_experience"]?.toString() ?? "0";
+        widget.doctor["experience_years"]?.toString() ??
+            widget.doctor["years_of_experience"]?.toString() ??
+            "0";
     final doctorPhone = widget.doctor["phone"] ?? "Not available";
     final doctorGender = widget.doctor["gender"] ?? "Not specified";
     final doctorStatus = widget.doctor["status"] ?? "pending";
+    final doctorPhotoUrl = widget.doctor["photo_url"] as String?;
 
     return Scaffold(
       appBar: AppBar(
@@ -77,12 +80,12 @@ class _DoctorDetailsPageState extends State<DoctorDetailsPage> {
               child: CircleAvatar(
                 radius: 70,
                 backgroundColor: Colors.grey[200],
-                backgroundImage: widget.doctor["image_url"] != null &&
-                    widget.doctor["image_url"].isNotEmpty
-                    ? NetworkImage(widget.doctor["image_url"])
+                backgroundImage: doctorPhotoUrl != null &&
+                    doctorPhotoUrl.isNotEmpty
+                    ? NetworkImage(doctorPhotoUrl)
                     : null,
-                child: (widget.doctor["image_url"] == null ||
-                    widget.doctor["image_url"].isEmpty)
+                child: (doctorPhotoUrl == null ||
+                    doctorPhotoUrl.isEmpty)
                     ? Icon(Icons.person, size: 70, color: Colors.grey[400])
                     : null,
               ),

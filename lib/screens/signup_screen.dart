@@ -222,9 +222,10 @@ class _SignupScreenState extends State<SignupScreen> {
       if (role == "Patient") {
         await supabase.from('patients').insert({
           'user_id': userId,
-          'phone': phone,
+          'name': name,
           'age': age,
-          'gender': genderValue
+          'gender': genderValue,
+          'relation': 'Self',
         });
       } else if (role == "Doctor") {
         await supabase.from('doctors').insert({
@@ -232,7 +233,7 @@ class _SignupScreenState extends State<SignupScreen> {
           'phone': phone,
           'gender': genderValue,
           'specialization': "General",
-          'years_of_experience': 0,
+          'experience_years': 0,
           'status': "pending",
         });
       } else if (role == "Assistant") {

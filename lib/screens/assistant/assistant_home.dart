@@ -55,13 +55,29 @@ class _AssistantDashboardScreenState extends State<AssistantDashboardScreen> {
     _fetchPendingAppointments();
   }
 
+  Future<String?> _assignedDoctorId() async {
+    return doctorId ?? await _authService.getAssignedDoctorIdForAssistant();
+  }
+
   Future<void> _fetchPendingAppointments() async {
     setState(() => _isLoadingAppointments = true);
 
     try {
+      final assignedDoctorId = await _assignedDoctorId();
+      if (assignedDoctorId == null) {
+        if (mounted) {
+          setState(() {
+            _pendingAppointments = [];
+            _isLoadingAppointments = false;
+          });
+        }
+        return;
+      }
+
       final response = await _supabase
           .from('appointments')
           .select('*, patients(name)')
+          .eq('doctor_id', assignedDoctorId)
           .eq('status', 'pending')
           .order('appointment_date', ascending: true)
           .order('appointment_time', ascending: true);
@@ -81,14 +97,23 @@ class _AssistantDashboardScreenState extends State<AssistantDashboardScreen> {
   Future<void> _updateAppointmentStatus(
       String appointmentId, String newStatus) async {
     try {
+      final assignedDoctorId = await _assignedDoctorId();
+      if (assignedDoctorId == null) {
+        throw Exception('Assigned doctor not found');
+      }
+
       // Logic for updating slot status (e.g., in 'accepted' case)
       if (newStatus == 'accepted') {
         // 1. Get appointment details (slot_id)
         final appointmentData = await _supabase
             .from('appointments')
-            .select('slot_id')
+            .select('slot_id, doctor_id')
             .eq('appointment_id', appointmentId)
+            .eq('doctor_id', assignedDoctorId)
             .maybeSingle();
+        if (appointmentData == null) {
+          throw Exception('Appointment not found for assigned doctor');
+        }
         final slotId = appointmentData?['slot_id'];
 
         // 2. Update the slot
@@ -113,9 +138,13 @@ class _AssistantDashboardScreenState extends State<AssistantDashboardScreen> {
         // Logic for 'rejected' status (e.g., reopen the slot)
         final appointmentData = await _supabase
             .from('appointments')
-            .select('slot_id')
+            .select('slot_id, doctor_id')
             .eq('appointment_id', appointmentId)
+            .eq('doctor_id', assignedDoctorId)
             .maybeSingle();
+        if (appointmentData == null) {
+          throw Exception('Appointment not found for assigned doctor');
+        }
         final slotId = appointmentData?['slot_id'];
 
         if (slotId != null) {
@@ -130,7 +159,8 @@ class _AssistantDashboardScreenState extends State<AssistantDashboardScreen> {
       final response = await _supabase
           .from('appointments')
           .update({'status': newStatus})
-          .eq('appointment_id', appointmentId);
+          .eq('appointment_id', appointmentId)
+          .eq('doctor_id', assignedDoctorId);
 
       // 4. Handle response and refresh
       if (response == null) { // Check for successful update
