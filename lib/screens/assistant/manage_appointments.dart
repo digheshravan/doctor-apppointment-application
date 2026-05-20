@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:medi_slot/auth/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart'; // Import for date/time formatting
 import 'package:shimmer/shimmer.dart'; // Import for loading shimmer
@@ -12,8 +13,10 @@ class ManageAppointmentsPage extends StatefulWidget {
 
 class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
   final SupabaseClient supabase = Supabase.instance.client;
+  final AuthService _authService = AuthService();
   List<Map<String, dynamic>> appointments = [];
   bool isLoading = true;
+  String? _doctorId;
 
   // --- UI Colors from UploadSlotsPage/CheckInScreen Theme ---
   static const Color primaryColor = Color(0xFF00AEEF); // Main blue
@@ -26,12 +29,27 @@ class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
   @override
   void initState() {
     super.initState();
-    fetchAppointments();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    _doctorId = await _authService.getAssignedDoctorIdForAssistant();
+    await fetchAppointments();
   }
 
   // --- NO CHANGES TO BACKEND LOGIC ---
   Future<void> fetchAppointments() async {
     try {
+      if (_doctorId == null) {
+        if (mounted) {
+          setState(() {
+            appointments = [];
+            isLoading = false;
+          });
+        }
+        return;
+      }
+
       final response = await supabase
           .from('appointments')
           .select('''
@@ -46,6 +64,7 @@ class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
               profiles(name)
             )
           ''')
+          .eq('doctor_id', _doctorId!)
           .order('appointment_date');
 
       if (mounted) {
@@ -64,12 +83,20 @@ class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
 
   Future<void> updateStatus(String appointmentId, String status) async {
     try {
+      if (_doctorId == null) {
+        throw Exception('Assigned doctor not found');
+      }
+
       // 1️⃣ Get appointment details first (including slot_id)
       final appointmentData = await supabase
           .from('appointments')
           .select('slot_id')
           .eq('appointment_id', appointmentId)
+          .eq('doctor_id', _doctorId!)
           .maybeSingle();
+      if (appointmentData == null) {
+        throw Exception('Appointment not found for assigned doctor');
+      }
 
       final slotId = appointmentData?['slot_id'];
 
@@ -77,7 +104,8 @@ class _ManageAppointmentsPageState extends State<ManageAppointmentsPage> {
       await supabase
           .from('appointments')
           .update({'status': status})
-          .eq('appointment_id', appointmentId);
+          .eq('appointment_id', appointmentId)
+          .eq('doctor_id', _doctorId!);
 
       // 3️⃣ Update the corresponding slot
       if (slotId != null) {

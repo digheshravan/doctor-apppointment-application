@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:medi_slot/auth/auth_service.dart';
 import 'package:medi_slot/screens/assistant/write_prescription_assistant.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shimmer/shimmer.dart';
@@ -22,9 +23,11 @@ class _CheckInScreenState extends State<CheckInScreen> {
   static const Color lightTextColor = Color(0xFF757575);
 
   final supabase = Supabase.instance.client;
+  final AuthService _authService = AuthService();
 
   List<Map<String, dynamic>> _appointments = [];
   bool _isLoading = false;
+  String? _doctorId;
   String _currentFilter = 'Total';
   int _totalCount = 0;
   int _inactiveCount = 0;
@@ -33,8 +36,13 @@ class _CheckInScreenState extends State<CheckInScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchAppointmentCounts();
-    _fetchAppointments('Total');
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    _doctorId = await _authService.getAssignedDoctorIdForAssistant();
+    await _fetchAppointmentCounts();
+    await _fetchAppointments('Total');
   }
 
   Future<void> _fetchAppointments(String type) async {
@@ -45,6 +53,16 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
     final today = DateTime.now();
     final todayStr = DateFormat('yyyy-MM-dd').format(today);
+
+    if (_doctorId == null) {
+      if (mounted) {
+        setState(() {
+          _appointments = [];
+          _isLoading = false;
+        });
+      }
+      return;
+    }
 
     // Updated query to fetch all needed patient and appointment details
     PostgrestFilterBuilder query = supabase
@@ -57,6 +75,8 @@ class _CheckInScreenState extends State<CheckInScreen> {
           reason,
           patients(patient_id, name, gender, age)
         ''')
+        .eq('doctor_id', _doctorId!)
+        .eq('appointment_date', todayStr)
         .eq('status', 'accepted');
 
     if (type == 'Inactive') {
@@ -80,14 +100,28 @@ class _CheckInScreenState extends State<CheckInScreen> {
     final today = DateTime.now();
     final todayStr = DateFormat('yyyy-MM-dd').format(today);
 
+    if (_doctorId == null) {
+      if (mounted) {
+        setState(() {
+          _totalCount = 0;
+          _inactiveCount = 0;
+          _activeCount = 0;
+        });
+      }
+      return;
+    }
+
     final totalRes = await supabase
         .from('appointments')
         .select('appointment_id')
+        .eq('doctor_id', _doctorId!)
+        .eq('appointment_date', todayStr)
         .eq('status', 'accepted');
 
     final inactiveRes = await supabase
         .from('appointments')
         .select('appointment_id')
+        .eq('doctor_id', _doctorId!)
         .eq('appointment_date', todayStr)
         .eq('status', 'accepted')
         .eq('visit_status', 'inactive');
@@ -95,6 +129,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
     final activeRes = await supabase
         .from('appointments')
         .select('appointment_id')
+        .eq('doctor_id', _doctorId!)
         .eq('appointment_date', todayStr)
         .eq('status', 'accepted')
         .eq('visit_status', 'active');
@@ -209,6 +244,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
               final patientData = {
                 'appointment_id': a['appointment_id'],
+                'patient_id': patient['patient_id'],
                 'name': patient['name'] ?? 'Unknown',
                 'gender': patient['gender'] ?? 'N/A',
                 'age': patient['age']?.toString() ?? '-',
@@ -220,6 +256,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
               return _PatientListCard(
                 patient: patientData,
+                doctorId: _doctorId,
                 onWritePrescription: (p) {
                   Navigator.push(
                     context,
@@ -393,11 +430,13 @@ class _CheckInScreenState extends State<CheckInScreen> {
 // --- Patient List Card Widget ---
 class _PatientListCard extends StatefulWidget {
   final Map<String, dynamic> patient;
+  final String? doctorId;
   final Function(Map<String, dynamic>)? onWritePrescription;
   final VoidCallback? onRefresh;
 
   const _PatientListCard({
     required this.patient,
+    this.doctorId,
     this.onWritePrescription,
     this.onRefresh,
   });
@@ -567,12 +606,21 @@ class _PatientListCardState extends State<_PatientListCard> {
                   onPressed: () async {
                     final supabase = Supabase.instance.client;
                     final appointmentId = widget.patient['appointment_id'];
+                    final doctorId = widget.doctorId;
+
+                    if (doctorId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Assigned doctor not found')),
+                      );
+                      return;
+                    }
 
                     try {
                       await supabase
                           .from('appointments')
                           .update({'visit_status': 'active'})
-                          .eq('appointment_id', appointmentId);
+                          .eq('appointment_id', appointmentId)
+                          .eq('doctor_id', doctorId);
 
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(

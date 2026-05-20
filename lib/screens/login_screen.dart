@@ -46,25 +46,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.user == null) throw Exception("Invalid email or password");
 
-      final userId = response.user!.id;
-
       // 2️⃣ Detect role directly from profiles table
       final role = await _authService.detectUserRole(email);
 
-      // 3️⃣ Save session
-      await _authService.saveLoginSession(userId, role);
-
-      // 4️⃣ Navigate to dashboard based on role
+      // 3️⃣ Navigate to dashboard based on role
       Widget nextScreen;
       switch (role.toLowerCase()) {
         case 'admin':
           nextScreen = const AdminDashboard();
           break;
         case 'doctor':
-        // This navigation might fail if doctorId is required and not 'admin'
-        // For now, passing a placeholder. You must fix this logic.
-          nextScreen = const DoctorDashboard(
-              doctorId: ''); // Placeholder, needs correct logic
+          final doctorId = await _authService.getCurrentDoctorId();
+          nextScreen = DoctorDashboard(doctorId: doctorId ?? '');
           break;
         case 'assistant':
           nextScreen = const AssistantDashboardScreen();
