@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:medi_slot/auth/auth_service.dart';
 import 'package:medi_slot/screens/doctor/assistant_requests.dart';
+import 'package:medi_slot/screens/doctor/profile_checklist_widget.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -26,18 +27,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _qualificationController = TextEditingController();
   final TextEditingController _genderController = TextEditingController();
   final TextEditingController _experienceYearsController = TextEditingController();
+  final TextEditingController _licenseController = TextEditingController();
 
 
   final AuthService _authService = AuthService();
   final _supabase = Supabase.instance.client;
 
   bool _isLoading = true;
-  bool _isEditingPersonalInfo = false;
-  bool _isEditingProfessionalInfo = false;
+  bool _isEditing = false;
   String? _photoUrl;
-  String? _gender;
-  String? _experienceYears = '';
-  String? _qualification;
   String? _doctorId;
   List<Map<String, dynamic>> _clinics = [];
   Map<String, dynamic>? _assistant;
@@ -49,7 +47,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _pickAndUploadPhoto() async {
-    // implement image picker + upload to Supabase Storage
+    if (_doctorId == null) return;
+    final url = await DoctorPhotoUploader.pickAndUpload(
+      context: context,
+      doctorId: _doctorId!,
+    );
+    if (url != null && mounted) {
+      setState(() => _photoUrl = url);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile photo updated! ✅'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
 
@@ -63,6 +74,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _qualificationController.dispose();
     _genderController.dispose();
     _experienceYearsController.dispose();
+    _licenseController.dispose();
     super.dispose();
   }
 
@@ -119,12 +131,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _feeController.text = response['consultation_fee']?.toString() ?? '0';
           _photoUrl = response['photo_url'];
           _genderController.text = response['gender'] ?? '';
-          _experienceYears = response['experience_years']?.toString() ?? '0';
-          _experienceYearsController.text = response['experience_years']?.toString() ?? '0'; // ✅ ADD THIS LINE
+          _experienceYearsController.text = response['experience_years']?.toString() ?? '0';
           _qualificationController.text = response['qualification'] ?? '';
-          _clinics = (clinicsResponse is List)
-              ? List<Map<String, dynamic>>.from(clinicsResponse)
-              : [];
+          _licenseController.text = response['license_number']?.toString() ?? '';
+          _clinics = List<Map<String, dynamic>>.from(clinicsResponse);
           _assistant = assistantResponse;
           _isLoading = false;
         });
@@ -146,76 +156,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // Save personal information
-  Future<void> _savePersonalInfo() async {
+  // Save all profile information
+  Future<void> _saveProfile() async {
+    setState(() => _isLoading = true);
     try {
       final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
+      if (userId == null) throw Exception('User not logged in');
 
       // Update profiles table
       await _supabase.from('profiles').update({
-        'name': _nameController.text,
-        'email': _emailController.text,
+        'name': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
       }).eq('id', userId);
 
       // Update doctors table
       await _supabase.from('doctors').update({
-        'phone': _phoneController.text,
-        'gender': _genderController.text,
+        'phone': _phoneController.text.trim(),
+        'gender': _genderController.text.trim(),
+        'specialization': _specializationController.text.trim(),
+        'consultation_fee': double.tryParse(_feeController.text.trim()) ?? 0.0,
+        'experience_years': int.tryParse(_experienceYearsController.text.trim()) ?? 0,
+        'qualification': _qualificationController.text.trim(),
+        'license_number': _licenseController.text.trim(),
       }).eq('user_id', userId);
 
       if (mounted) {
         setState(() {
-          _isEditingPersonalInfo = false;
+          _isEditing = false;
         });
+        await _fetchDoctorData(); // re-fetch fresh values from DB
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Personal information updated successfully'),
+            content: Text('Profile details updated successfully! ✅'),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error updating profile: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  // Save professional details
-  Future<void> _saveProfessionalDetails() async {
-    try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
-
-      await _supabase.from('doctors').update({
-        'specialization': _specializationController.text,
-        'consultation_fee': double.tryParse(_feeController.text),
-        'experience_years': int.tryParse(_experienceYearsController.text),
-        'qualification': _qualificationController.text,
-      }).eq('user_id', userId);
-
-      if (mounted) {
-        setState(() {
-          _isEditingProfessionalInfo = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Professional details updated successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating details: $e'),
+            content: Text('Error updating profile: $e ❌'),
             backgroundColor: Colors.red,
           ),
         );
@@ -293,21 +275,92 @@ class _ProfileScreenState extends State<ProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 🔹 Header
-          const Text(
-            "Profile",
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            "Manage your account settings",
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Profile",
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Manage your account settings",
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              if (!_isEditing)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _isEditing = true;
+                    });
+                  },
+                  icon: const Icon(Icons.edit, size: 16, color: Colors.white),
+                  label: const Text(
+                    "Edit",
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00B2C3),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _isEditing = false;
+                          _fetchDoctorData(); // revert
+                        });
+                      },
+                      child: const Text(
+                        "Cancel",
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _saveProfile,
+                      icon: const Icon(Icons.check, size: 16, color: Colors.white),
+                      label: const Text(
+                        "Save",
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
           const SizedBox(height: 24),
 
@@ -316,50 +369,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 24),
 
           // 🔹 Personal Information
-          _buildSectionTitleWithEdit(
-            "Personal Information",
-            isEditing: _isEditingPersonalInfo,
-            onEditToggle: () {
-              setState(() {
-                _isEditingPersonalInfo = !_isEditingPersonalInfo;
-              });
-            },
-          ),
+          _buildSectionTitle("Personal Information"),
           _buildFormCard(
             children: [
               _buildInfoTextField(
                 controller: _nameController,
                 label: "Full Name",
                 icon: Icons.person_outline_rounded,
-                readOnly: !_isEditingPersonalInfo,
+                readOnly: !_isEditing,
               ),
               const SizedBox(height: 16),
               _buildInfoTextField(
                 controller: _emailController,
                 label: "Email",
                 icon: Icons.email_outlined,
-                readOnly: !_isEditingPersonalInfo,
+                readOnly: !_isEditing,
               ),
               const SizedBox(height: 16),
               _buildInfoTextField(
                 controller: _phoneController,
                 label: "Phone Number",
                 icon: Icons.phone_outlined,
-                readOnly: !_isEditingPersonalInfo,
+                readOnly: !_isEditing,
               ),
               const SizedBox(height: 16),
               _buildInfoTextField(
                 controller: _genderController,
                 label: "Gender",
                 icon: Icons.wc,
-                readOnly: !_isEditingPersonalInfo,
+                readOnly: !_isEditing,
               ),
-              if (_isEditingPersonalInfo) ...[
-                const SizedBox(height: 16),
-                _buildSaveChangesButton(
-                  onPressed: _savePersonalInfo,
-                ),
-              ],
             ],
           ),
           const SizedBox(height: 24),
@@ -405,43 +444,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 24),
 
           // 🔹 Professional Details
-          _buildSectionTitleWithEdit(
-            "Professional Details",
-            isEditing: _isEditingProfessionalInfo,
-            onEditToggle: () {
-              setState(() {
-                _isEditingProfessionalInfo = !_isEditingProfessionalInfo;
-              });
-            },
-          ),
+          _buildSectionTitle("Professional Details"),
           _buildFormCard(
             children: [
               _buildInfoTextField(
                 controller: _specializationController,
                 label: "Specialization",
                 icon: Icons.business_center_outlined,
-                readOnly: !_isEditingProfessionalInfo,
+                readOnly: !_isEditing,
               ),
               const SizedBox(height: 16),
               _buildInfoTextField(
                 controller: _feeController,
                 label: "Consultation Fee",
                 icon: const IconData(0x20B9, fontFamily: 'MaterialIcons'),
-                readOnly: !_isEditingProfessionalInfo,
+                readOnly: !_isEditing,
               ),
               const SizedBox(height: 16),
               _buildInfoTextField(
                 controller: _qualificationController,
                 label: "Qualification",
                 icon: Icons.school_outlined,
-                readOnly: !_isEditingProfessionalInfo,
+                readOnly: !_isEditing,
               ),
-              if (_isEditingProfessionalInfo) ...[
-                const SizedBox(height: 16),
-                _buildSaveChangesButton(
-                  onPressed: _saveProfessionalDetails,
-                ),
-              ],
+              const SizedBox(height: 16),
+              _buildInfoTextField(
+                controller: _experienceYearsController,
+                label: "Experience (Years)",
+                icon: Icons.work_history_outlined,
+                readOnly: !_isEditing,
+              ),
+              const SizedBox(height: 16),
+              _buildInfoTextField(
+                controller: _licenseController,
+                label: "Medical License Number",
+                icon: Icons.badge_outlined,
+                readOnly: !_isEditing,
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -450,7 +489,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _buildSectionTitle("Assigned Assistant"),
           Card(
             elevation: 1,
-            shadowColor: Colors.black.withOpacity(0.04),
+            shadowColor: Colors.black.withValues(alpha: 0.04),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
               side: BorderSide(color: Colors.grey.shade200),
@@ -528,7 +567,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Card(
       elevation: 2,
-      shadowColor: Colors.black.withOpacity(0.05),
+      shadowColor: Colors.black.withValues(alpha: 0.05),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -556,7 +595,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   )
                       : CircleAvatar(
                     radius: 50,
-                    backgroundColor: const Color(0xFF00B2C3).withOpacity(0.1),
+                    backgroundColor: const Color(0xFF00B2C3).withValues(alpha: 0.1),
                     child: Text(
                       initials,
                       style: const TextStyle(
@@ -566,22 +605,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: GestureDetector(
-                      onTap: _pickAndUploadPhoto, // new function
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.white,
+                  if (_isEditing)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: _pickAndUploadPhoto, // new function
                         child: CircleAvatar(
-                          radius: 15,
-                          backgroundColor: Colors.blue.shade700,
-                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                          radius: 18,
+                          backgroundColor: Colors.white,
+                          child: CircleAvatar(
+                            radius: 15,
+                            backgroundColor: Colors.blue.shade700,
+                            child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                          ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -638,42 +678,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSectionTitleWithEdit(
-      String title, {
-        required bool isEditing,
-        required VoidCallback onEditToggle,
-      }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          IconButton(
-            onPressed: onEditToggle,
-            icon: Icon(
-              isEditing ? Icons.close : Icons.edit,
-              color: const Color(0xFF00B2C3),
-              size: 22,
-            ),
-            tooltip: isEditing ? 'Cancel' : 'Edit',
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildFormCard({required List<Widget> children}) {
     return Card(
       elevation: 1,
-      shadowColor: Colors.black.withOpacity(0.04),
+      shadowColor: Colors.black.withValues(alpha: 0.04),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.grey.shade200),
@@ -725,55 +735,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 120,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade700,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildSaveChangesButton({required VoidCallback onPressed}) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 50),
-        backgroundColor: const Color(0xFF00B2C3),
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      child: const Text(
-        "Save Changes",
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
 
   Widget _buildActionButton({
     required VoidCallback onPressed,

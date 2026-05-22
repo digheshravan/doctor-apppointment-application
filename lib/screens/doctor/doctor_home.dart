@@ -5,6 +5,7 @@ import 'package:medi_slot/screens/doctor/patients_screen.dart';
 import 'package:medi_slot/screens/doctor/prescriptions_screen.dart';
 import 'package:medi_slot/screens/doctor/profile_screen.dart';
 import 'package:medi_slot/screens/doctor/write_prescription_screen.dart';
+import 'package:medi_slot/screens/doctor/profile_checklist_widget.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import '../../auth/auth_service.dart';
 import 'package:intl/intl.dart';
@@ -30,6 +31,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
   String? userName;
   String? doctorId;
   bool isLoading = true;
+  Map<String, dynamic>? doctorData;
 
   int _page = 0;
   int todayAppointments = 0;
@@ -55,6 +57,14 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
     _buildPages();
   }
 
+  void _goToProfileTab() {
+    setState(() {
+      _pageIndex = 5;
+      _page = 5;
+      _buildPages();
+    });
+  }
+
   void _buildPages() {
     _pages = [
       DoctorHomePage(
@@ -66,6 +76,8 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         pendingApprovalsCount: pendingApprovalsCount,
         completedConsultations: completedConsultations,
         isLoading: isLoading,
+        doctorData: doctorData,
+        onGoToProfile: _goToProfileTab,
       ),
       const AppointmentsScreen(),
       PatientsScreen(onWritePrescription: _openPrescriptionScreen),
@@ -141,10 +153,8 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .eq('slot_date', today);
 
       int todayCount = 0;
-      if (todayRes is List) {
-        todayCount = todayRes.fold<int>(
-            0, (sum, slot) => sum + ((slot['booked_count'] ?? 0) as int));
-      }
+      todayCount = todayRes.fold<int>(
+          0, (sum, slot) => sum + ((slot['booked_count'] ?? 0) as int));
 
       // 2. Total patients
       final appointmentsRes = await supabase
@@ -152,7 +162,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .select('appointment_id')
           .eq('doctor_id', currentDoctorId)
           .not('status', 'in', ['cancelled', 'rejected']);
-      final totalPatientsCount = (appointmentsRes is List) ? appointmentsRes.length : 0;
+      final totalPatientsCount = appointmentsRes.length;
 
       // 3. Pending slots today
       final pendingSlotsRes = await supabase
@@ -161,7 +171,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .eq('doctor_id', currentDoctorId)
           .eq('slot_date', today)
           .eq('status', 'open');
-      final pendingSlotsCount = (pendingSlotsRes is List) ? pendingSlotsRes.length : 0;
+      final pendingSlotsCount = pendingSlotsRes.length;
 
       // 4. Pending approvals
       final pendingRes = await supabase
@@ -169,7 +179,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .select('appointment_id')
           .eq('doctor_id', currentDoctorId)
           .eq('status', 'pending');
-      final pendingApprovalsCountLocal = (pendingRes is List) ? pendingRes.length : 0;
+      final pendingApprovalsCountLocal = pendingRes.length;
 
       // ✅ 5. Completed consultations
       final completedRes = await supabase
@@ -177,7 +187,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .select('appointment_id')
           .eq('doctor_id', currentDoctorId)
           .eq('visit_status', 'completed');
-      final completedConsultationsCount = (completedRes is List) ? completedRes.length : 0;
+      final completedConsultationsCount = completedRes.length;
 
       // 6. Upcoming appointments (3 max)
       final upcomingRes = await supabase
@@ -191,16 +201,40 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .limit(3);
 
       final List<Map<String, dynamic>> fetchedAppointments = [];
-      if (upcomingRes is List) {
-        for (final appt in upcomingRes) {
-          fetchedAppointments.add({
-            'name': (appt['patients'] != null && appt['patients']['name'] != null)
-                ? appt['patients']['name']
-                : 'Unknown',
-            'time': '${appt['appointment_date']} ${appt['appointment_time']}',
-            'status': appt['status'] ?? 'Pending',
-          });
+      for (final appt in upcomingRes) {
+        fetchedAppointments.add({
+          'name': (appt['patients'] != null && appt['patients']['name'] != null)
+              ? appt['patients']['name']
+              : 'Unknown',
+          'time': '${appt['appointment_date']} ${appt['appointment_time']}',
+          'status': appt['status'] ?? 'Pending',
+        });
+      }
+
+      // Fetch doctor info for the checklist banner
+      Map<String, dynamic>? fetchedDoctorData;
+      try {
+        final doctorRes = await supabase
+            .from('doctors')
+            .select('photo_url, qualification, consultation_fee, specialization, license_number')
+            .eq('doctor_id', currentDoctorId)
+            .maybeSingle();
+
+        // Check if doctor has at least one clinic location
+        final clinicsCountRes = await supabase
+            .from('clinic_locations')
+            .select('clinic_id')
+            .eq('doctor_id', currentDoctorId)
+            .limit(1);
+
+        final hasClinic = (clinicsCountRes as List).isNotEmpty;
+
+        if (doctorRes != null) {
+          fetchedDoctorData = Map<String, dynamic>.from(doctorRes);
+          fetchedDoctorData['has_clinic'] = hasClinic;
         }
+      } catch (de) {
+        print("Error fetching doctor checklist data: $de");
       }
 
       // Update state once
@@ -209,8 +243,9 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         totalPatients = totalPatientsCount;
         pendingSlots = pendingSlotsCount;
         pendingApprovalsCount = pendingApprovalsCountLocal;
-        completedConsultations = completedConsultationsCount; // ✅ ADD THIS
+        completedConsultations = completedConsultationsCount;
         upcomingAppointments = fetchedAppointments;
+        doctorData = fetchedDoctorData;
         isLoading = false;
       });
     } catch (e) {
@@ -328,6 +363,8 @@ class DoctorHomePage extends StatelessWidget {
   final int pendingApprovalsCount;
   final bool isLoading;
   final int completedConsultations;
+  final Map<String, dynamic>? doctorData;
+  final VoidCallback onGoToProfile;
 
   const DoctorHomePage({
     super.key,
@@ -339,7 +376,8 @@ class DoctorHomePage extends StatelessWidget {
     required this.pendingApprovalsCount,
     required this.completedConsultations,
     required this.isLoading,
-
+    this.doctorData,
+    required this.onGoToProfile,
   });
 
   @override
@@ -354,6 +392,13 @@ class DoctorHomePage extends StatelessWidget {
         children: [
           _buildHeader(userName, currentDate),
           const SizedBox(height: 20),
+          if (doctorData != null) ...[
+            ProfileChecklistBanner(
+              doctorData: doctorData!,
+              onComplete: onGoToProfile,
+            ),
+            const SizedBox(height: 15),
+          ],
           _buildStatCards(todayAppointments, totalPatients, pendingSlots, completedConsultations, isLoading),
           const SizedBox(height: 25),
           _buildReadyToStartCard(),
