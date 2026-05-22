@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:medi_slot/auth/auth_service.dart';
+import 'package:medi_slot/screens/assistant/queue_display_screen.dart';
 import 'package:medi_slot/screens/assistant/write_prescription_assistant.dart';
+import 'package:medi_slot/services/queue_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -16,7 +18,6 @@ class CheckInScreen extends StatefulWidget {
 class _CheckInScreenState extends State<CheckInScreen> {
   // UI Colors
   static const Color primaryColor = Color(0xFF00AEEF);
-  static const Color primaryVariant = Color(0xFF00B0F0);
   static const Color accentColor = Color(0xFF4CAF50);
   static const Color backgroundColor = Color(0xFFF8F9FA);
   static const Color textColor = Color(0xFF333333);
@@ -69,6 +70,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
         .from('appointments')
         .select('''
           appointment_id,
+          clinic_id,
           appointment_date,
           appointment_time,
           visit_status,
@@ -159,7 +161,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.1),
+                color: primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(Icons.checklist, color: primaryColor, size: 30),
@@ -187,6 +189,18 @@ class _CheckInScreenState extends State<CheckInScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.queue_outlined, color: primaryColor),
+            tooltip: 'Live Queue Board',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const QueueDisplayScreen()),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -244,6 +258,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
               final patientData = {
                 'appointment_id': a['appointment_id'],
+                'clinic_id': a['clinic_id'],
                 'patient_id': patient['patient_id'],
                 'name': patient['name'] ?? 'Unknown',
                 'gender': patient['gender'] ?? 'N/A',
@@ -335,13 +350,13 @@ class _CheckInScreenState extends State<CheckInScreen> {
             boxShadow: [
               if (isSelected)
                 BoxShadow(
-                  color: color.withOpacity(0.15),
+                  color: color.withValues(alpha: 0.15),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),
               if (!isSelected)
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
+                  color: Colors.black.withValues(alpha: 0.04),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -352,7 +367,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon, color: color, size: 24),
@@ -616,19 +631,26 @@ class _PatientListCardState extends State<_PatientListCard> {
                     }
 
                     try {
+                      // 1. Mark appointment as active
                       await supabase
                           .from('appointments')
                           .update({'visit_status': 'active'})
                           .eq('appointment_id', appointmentId)
                           .eq('doctor_id', doctorId);
 
+                      // 2. Create queue token for this patient
+                      final queueService = QueueService();
+                      await queueService.createToken(
+                        appointmentId: appointmentId as String,
+                        doctorId: doctorId,
+                        clinicId: widget.patient['clinic_id'] as String?,
+                      );
+
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                              content: Text('Patient marked as arrived!')),
+                              content: Text('Patient marked as arrived & token issued! 🎫')),
                         );
-
-                        // Refresh the list
                         if (widget.onRefresh != null) {
                           widget.onRefresh!();
                         }
@@ -736,7 +758,7 @@ class _StatusTag extends StatelessWidget {
 
 // --- Shimmer Loading Card ---
 class _ShimmerPatientCard extends StatelessWidget {
-  const _ShimmerPatientCard({super.key});
+  const _ShimmerPatientCard();
 
   @override
   Widget build(BuildContext context) {

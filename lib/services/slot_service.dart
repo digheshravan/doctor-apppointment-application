@@ -54,7 +54,7 @@ class SlotService {
           .select('''
             slot_id, slot_date, start_time, end_time,
             slot_limit, booked_count, status, clinic_id,
-            clinics(clinic_id, name)
+            clinic_locations(clinic_id, clinic_name)
           ''')
           .eq('doctor_id', doctorId)
           .eq('slot_date', date);
@@ -64,7 +64,16 @@ class SlotService {
       }
 
       final response = await query.order('start_time');
-      return List<Map<String, dynamic>>.from(response);
+      return List<Map<String, dynamic>>.from((response as List).map((e) {
+        final map = Map<String, dynamic>.from(e);
+        if (map['clinic_locations'] != null) {
+          map['clinics'] = {
+            'clinic_id': map['clinic_locations']['clinic_id'],
+            'name': map['clinic_locations']['clinic_name'],
+          };
+        }
+        return map;
+      }));
     } catch (e) {
       print('❌ SlotService.getAllSlotsForDate error: $e');
       return [];
@@ -116,13 +125,21 @@ class SlotService {
           .select('''
             template_id, day_of_week, start_time, end_time,
             slot_duration_minutes, slot_limit, is_active, clinic_id,
-            clinics(name)
+            clinic_locations(clinic_name)
           ''')
           .eq('doctor_id', doctorId)
           .eq('is_active', true)
           .order('day_of_week');
 
-      return List<Map<String, dynamic>>.from(response);
+      return List<Map<String, dynamic>>.from((response as List).map((e) {
+        final map = Map<String, dynamic>.from(e);
+        if (map['clinic_locations'] != null) {
+          map['clinics'] = {
+            'name': map['clinic_locations']['clinic_name'],
+          };
+        }
+        return map;
+      }));
     } catch (e) {
       print('❌ SlotService.getScheduleTemplates error: $e');
       return [];
@@ -268,12 +285,16 @@ class SlotService {
       String doctorId) async {
     try {
       final response = await _db
-          .from('doctor_clinics')
-          .select('clinic_id, clinics(clinic_id, name, address)')
+          .from('clinic_locations')
+          .select('clinic_id, clinic_name, address')
           .eq('doctor_id', doctorId);
 
       return List<Map<String, dynamic>>.from(
-          (response as List).map((e) => e['clinics'] as Map<String, dynamic>));
+          (response as List).map((e) => {
+            'clinic_id': e['clinic_id'],
+            'name': e['clinic_name'],
+            'address': e['address'],
+          }));
     } catch (e) {
       print('❌ SlotService.getDoctorClinics error: $e');
       return [];
