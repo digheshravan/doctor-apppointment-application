@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:medi_slot/auth/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shimmer/shimmer.dart';
+import 'slot_templates_screen.dart';
 
 // -----------------------------------------------------------------------------
 // Data Models
@@ -128,6 +129,21 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                 style: TextStyle(color: Colors.grey, fontSize: 14)),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month_outlined, color: Color(0xFF0D47A1), size: 28),
+            tooltip: 'Weekly Slots Template',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SlotTemplatesScreen(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
