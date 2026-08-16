@@ -3,6 +3,9 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../auth/auth_service.dart'; // For date formatting
+import 'prescription_preview_screen.dart';
+import 'consultation_complete_screen.dart';
+import '../../services/billing_service.dart';
 
 // -----------------------------------------------------------------------------
 // Write Prescription Screen
@@ -23,6 +26,33 @@ class WritePrescriptionScreen extends StatefulWidget {
 
 
 class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
+  Future<Map<String, dynamic>?> _fetchDoctorFullInfo() async {
+    final supabase = Supabase.instance.client;
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) return null;
+
+      final response = await supabase
+          .from('doctors')
+          .select('doctor_id, photo_url, qualification, consultation_fee, specialization, profiles(name)')
+          .eq('user_id', user.id)
+          .single();
+
+      final profiles = response['profiles'] as Map<String, dynamic>?;
+      return {
+        'doctor_id': response['doctor_id'],
+        'photo_url': response['photo_url'],
+        'qualification': response['qualification'],
+        'consultation_fee': (response['consultation_fee'] as num?)?.toDouble() ?? 0.0,
+        'specialization': response['specialization'],
+        'name': profiles != null ? profiles['name'] : 'Doctor',
+      };
+    } catch (e) {
+      print('Error fetching doctor full info: $e');
+      return null;
+    }
+  }
+
   // Controllers for text fields (you'd use these to get input values)
   final TextEditingController _patientNameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
@@ -229,7 +259,6 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
           });
         }
       }
-
       // 🔹 Update visit_status to 'completed' in appointments table
       if (_selectedPatient?['appointment_id'] != null) {
         await supabase
@@ -240,27 +269,56 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
         print('✅ Appointment visit_status updated to completed');
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Prescription saved and visit completed!')),
+      // 🔹 Automated Billing & Consultation Complete screen
+      final docInfo = await _fetchDoctorFullInfo();
+      final double fee = docInfo != null ? (docInfo['consultation_fee'] as double) : 0.0;
+      final String doctorName = docInfo != null ? (docInfo['name'] as String) : 'Doctor';
+
+      final billingService = BillingService();
+      final bill = await billingService.createBill(
+        appointmentId: _selectedPatient!['appointment_id'],
+        doctorId: doctorId,
+        patientId: _selectedPatient!['patient_id'],
+        amount: fee,
       );
 
-      // Clear form
-      _diagnosisController.clear();
-      _symptomsController.clear();
-      _additionalNotesController.clear();
-      _recommendedTestsController.clear();
-      _followUpDateController.clear();
-      _addedMedicines.clear();
-      setState(() {
-        _selectedPatient = null;
-        _patientNameController.clear();
-        _ageController.clear();
-        _selectedGender = null;
-      });
+      if (bill != null) {
+        final patientName = _patientNameController.text;
 
-      // Refresh today's appointments to reflect the change
-      await _fetchTodayAppointments();
+        // Clear form
+        _diagnosisController.clear();
+        _symptomsController.clear();
+        _additionalNotesController.clear();
+        _recommendedTestsController.clear();
+        _followUpDateController.clear();
+        _addedMedicines.clear();
+        setState(() {
+          _selectedPatient = null;
+          _patientNameController.clear();
+          _ageController.clear();
+          _selectedGender = null;
+        });
 
+        // Refresh today's appointments to reflect the change
+        await _fetchTodayAppointments();
+
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ConsultationCompleteScreen(
+                billId: bill.billId,
+                appointmentId: bill.appointmentId,
+                patientName: patientName,
+                billAmount: bill.amount,
+                doctorName: doctorName,
+              ),
+            ),
+          );
+        }
+      } else {
+        throw Exception("Failed to create consultation bill");
+      }
     } catch (e) {
       print('❌ Full error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -584,8 +642,54 @@ class _WritePrescriptionScreenState extends State<WritePrescriptionScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        // TODO: Handle Preview action
+                      onPressed: () async {
+                        if (_patientNameController.text.isEmpty || _diagnosisController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please fill in all required fields')),
+                          );
+                          return;
+                        }
+
+                        if (_selectedPatient == null || _selectedPatient?['patient_id'] == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please select a patient first')),
+                          );
+                          return;
+                        }
+
+                        setState(() => _isLoading = true);
+                        final docInfo = await _fetchDoctorFullInfo();
+                        setState(() => _isLoading = false);
+
+                        if (docInfo == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Could not fetch doctor information')),
+                          );
+                          return;
+                        }
+
+                        if (mounted) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PrescriptionPreviewScreen(
+                                doctorInfo: docInfo,
+                                patientInfo: {
+                                  'name': _patientNameController.text,
+                                  'age': _ageController.text,
+                                  'gender': _selectedGender ?? '',
+                                },
+                                diagnosis: _diagnosisController.text,
+                                symptoms: _symptomsController.text,
+                                medicines: _addedMedicines,
+                                recommendedTests: _recommendedTestsController.text,
+                                additionalNotes: _additionalNotesController.text,
+                                followUpDate: _followUpDateController.text,
+                                onConfirmSave: _savePrescription,
+                              ),
+                            ),
+                          );
+                        }
                       },
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.blue.shade700,

@@ -9,6 +9,7 @@ import 'package:medi_slot/screens/assistant/view_prescriptions.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:medi_slot/screens/login_screen.dart';
 import 'package:medi_slot/auth/auth_service.dart';
+import 'package:medi_slot/screens/assistant/confirm_payment_screen.dart';
 
 class AssistantDashboardScreen extends StatefulWidget {
   const AssistantDashboardScreen({Key? key}) : super(key: key);
@@ -539,6 +540,20 @@ class _AssistantDashboardScreenState extends State<AssistantDashboardScreen> {
             setState(() {
               _page = 4; // Navigate to Prescriptions page
             });
+          },
+        ),
+        const SizedBox(height: 12),
+        _buildActionCard(
+          title: "Confirm Payments",
+          subtitle: "Confirm cash collections",
+          icon: Icons.monetization_on_outlined,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ConfirmPaymentScreen(),
+              ),
+            );
           },
         ),
       ],
